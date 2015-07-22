@@ -19,11 +19,11 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import com.parrot.arsdk.arcommands.ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM;
-import com.parrot.arsdk.arcontroller.ARControllerArgumentDictionary;
-import com.parrot.arsdk.arcontroller.ARControllerDictionary;
 import com.parrot.arsdk.arcontroller.ARCONTROLLER_DEVICE_STATE_ENUM;
 import com.parrot.arsdk.arcontroller.ARCONTROLLER_DICTIONARY_KEY_ENUM;
 import com.parrot.arsdk.arcontroller.ARCONTROLLER_ERROR_ENUM;
+import com.parrot.arsdk.arcontroller.ARControllerArgumentDictionary;
+import com.parrot.arsdk.arcontroller.ARControllerDictionary;
 import com.parrot.arsdk.arcontroller.ARControllerException;
 import com.parrot.arsdk.arcontroller.ARDeviceController;
 import com.parrot.arsdk.arcontroller.ARDeviceControllerListener;
@@ -32,9 +32,9 @@ import com.parrot.arsdk.arcontroller.ARFrame;
 import com.parrot.arsdk.ardiscovery.ARDISCOVERY_PRODUCT_ENUM;
 import com.parrot.arsdk.ardiscovery.ARDiscoveryDevice;
 import com.parrot.arsdk.ardiscovery.ARDiscoveryDeviceNetService;
-import com.parrot.arsdk.ardiscovery.ARDiscoveryException;
-
 import com.parrot.arsdk.ardiscovery.ARDiscoveryDeviceService;
+import com.parrot.arsdk.ardiscovery.ARDiscoveryException;
+import com.reconinstruments.os.HUDOS;
 import com.reconinstruments.os.hardware.sensors.HUDHeadingManager;
 import com.reconinstruments.os.hardware.sensors.HeadLocationListener;
 
@@ -132,6 +132,8 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
     {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_piloting);
+
+        mHUDHeadingManager = (HUDHeadingManager) HUDOS.getHUDService(HUDOS.HUD_HEADING_SERVICE);
 
         initIHM ();
         initVideoVars();
@@ -484,27 +486,8 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
         super.onStart();
         mHUDHeadingManager.register(this);
         mIsStarted = true;
-        //start the deviceController
-        if (deviceController != null)
-        {
-            final AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(PilotingActivity.this);
-
-            // set title
-            alertDialogBuilder.setTitle("Connecting ...");
-
-
-            // create alert dialog
-            alertDialog = alertDialogBuilder.create();
-            alertDialog.show();
-
-            ARCONTROLLER_ERROR_ENUM error = deviceController.start();
-
-            if (error != ARCONTROLLER_ERROR_ENUM.ARCONTROLLER_OK)
-            {
-                finish();
-            }
-        }
     }
+
 
     /**
      * D-Pad制御
@@ -593,6 +576,27 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
         return super.onKeyDown(keyCode, event);
     }
 
+    private void startDeviceController() {
+        if (deviceController != null) {
+            final AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(PilotingActivity.this);
+
+            // set title
+            alertDialogBuilder.setTitle("Connecting ...");
+
+
+            // create alert dialog
+            alertDialog = alertDialogBuilder.create();
+            alertDialog.show();
+
+            ARCONTROLLER_ERROR_ENUM error = deviceController.start();
+
+            if (error != ARCONTROLLER_ERROR_ENUM.ARCONTROLLER_OK)
+            {
+                finish();
+            }
+        }
+    }
+
     private void stopDeviceController()
     {
         if (deviceController != null)
@@ -603,19 +607,16 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
             alertDialogBuilder.setTitle("Disconnecting ...");
 
             // show it
-            runOnUiThread(new Runnable()
-            {
+            runOnUiThread(new Runnable() {
                 @Override
-                public void run()
-                {
+                public void run() {
                     // create alert dialog
                     alertDialog = alertDialogBuilder.create();
                     alertDialog.show();
 
                     ARCONTROLLER_ERROR_ENUM error = deviceController.stop();
 
-                    if (error != ARCONTROLLER_ERROR_ENUM.ARCONTROLLER_OK)
-                    {
+                    if (error != ARCONTROLLER_ERROR_ENUM.ARCONTROLLER_OK) {
                         finish();
                     }
                 }
@@ -646,42 +647,11 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
      */
     @Override
     public void onHeadLocation(float yaw, float pitch, float roll) {
-        System.out.println("headLocation:"+yaw+" "+pitch+" "+roll);
-        if (deviceController == null) return;
-        /*
-        if (yaw < -50) {
-            deviceController.setYaw((byte) -50);
-        } else if (yaw > 50) {
-            deviceController.setYaw((byte)50);
-        } else {
-            deviceController.setYaw((byte)0);
-        }
-        */
-        if (pitch < -17) {
-            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) -50);
-            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
-        } else if (pitch > 40) {
-            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) 50);
-            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
-        } else {
-            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) 0);
-            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
-        }
-        if (roll < -30) {
-            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte) -50);
-            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
-        } else if (roll > 30) {
-            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte) 50);
-            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
-        } else {
-            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte) 0);
-            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
-        }
+        System.out.println("headLocation:" + yaw + " " + pitch + " " + roll);
     }
 
     @Override
-    public void onBackPressed()
-    {
+    public void onBackPressed() {
         stopDeviceController();
     }
 

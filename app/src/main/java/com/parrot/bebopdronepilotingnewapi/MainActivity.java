@@ -15,6 +15,8 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
+import android.widget.RelativeLayout;
+import android.widget.TextView;
 
 import com.parrot.arsdk.ardiscovery.ARDISCOVERY_PRODUCT_ENUM;
 import com.parrot.arsdk.ardiscovery.ARDiscoveryDeviceService;
@@ -22,11 +24,14 @@ import com.parrot.arsdk.ardiscovery.ARDiscoveryService;
 import com.parrot.arsdk.ardiscovery.receivers.ARDiscoveryServicesDevicesListUpdatedReceiver;
 import com.parrot.arsdk.ardiscovery.receivers.ARDiscoveryServicesDevicesListUpdatedReceiverDelegate;
 import com.parrot.arsdk.arsal.ARSALPrint;
+import com.reconinstruments.os.HUDOS;
+import com.reconinstruments.os.hardware.sensors.HUDHeadingManager;
+import com.reconinstruments.os.hardware.sensors.HeadLocationListener;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class MainActivity extends Activity implements ARDiscoveryServicesDevicesListUpdatedReceiverDelegate
+public class MainActivity extends Activity implements HeadLocationListener, ARDiscoveryServicesDevicesListUpdatedReceiverDelegate
 {
     private static String TAG = MainActivity.class.getSimpleName();
 
@@ -69,6 +74,89 @@ public class MainActivity extends Activity implements ARDiscoveryServicesDevices
 
     private BroadcastReceiver ardiscoveryServicesDevicesListUpdatedReceiver;
 
+    private HUDHeadingManager mHUDHeadingManager = null;
+
+    private RelativeLayout view;
+
+    // Calibration
+    private boolean isCalibrated = false;
+    private boolean isInCalibration = false;
+    private static final int CALIBRATION_STEP_MINMAX = 5;
+    private static final int CALIBRATION_STEP_NORMAL = 4;
+    private int calibrationCounter = 10;
+    private float minYaw = 10000, maxYaw = 10000, minPitch, maxPitch, minRoll, maxRoll;
+    private float norYaw, norPitch, norRoll;
+    private List<Float> yawBuf = new ArrayList<Float>();
+    private List<Float> pitchBuf = new ArrayList<Float>();
+    private List<Float> rollBuf = new ArrayList<Float>();
+    private TextView calibrationDirection;
+    private Thread calibrationThread = new Thread(new Runnable() {
+        @Override
+        public void run() {
+            try {
+                isInCalibration = true;
+                // init
+                calibrationCounter = 9;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        calibrationDirection.setText(R.string.calibration_direction_1);
+                        calibrationDirection.setTextSize(30);
+                        RelativeLayout.LayoutParams p = new RelativeLayout.LayoutParams(-1, -1);
+                        view.addView(calibrationDirection, p);
+                    }
+                });
+                Thread.sleep(5000);
+                calibrationCounter = 8;
+                // show direction
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        calibrationDirection.setText(R.string.calibration_direction_2);
+                    }
+                });
+                Thread.sleep(5000);
+                calibrationCounter = CALIBRATION_STEP_MINMAX;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        calibrationDirection.setText(R.string.calibration_direction_3);
+                    }
+                });
+                Thread.sleep(15000);
+                calibrationCounter = CALIBRATION_STEP_NORMAL;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        calibrationDirection.setText(R.string.calibration_direction_4);
+                    }
+                });
+                Thread.sleep(5000);
+                calibrationCounter = CALIBRATION_STEP_NORMAL - 1;
+                // 計算
+                calcNormalPosition();
+                calibrationCounter = 0;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        calibrationDirection.setText(R.string.calibration_direction_5);
+                        view.removeView(calibrationDirection);
+                    }
+                });
+                showCalibratedValue();
+                finishCalibration();
+            } catch (Exception calibrationException) {
+                calibrationException.printStackTrace();
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        calibrationDirection.setText(R.string.calibration_direction_6);
+                    }
+                });
+            }
+        }
+    });
+
     @Override
     protected void onCreate(Bundle savedInstanceState)
     {
@@ -79,7 +167,11 @@ public class MainActivity extends Activity implements ARDiscoveryServicesDevices
         initBroadcastReceiver();
         initServiceConnection();
 
+        mHUDHeadingManager = (HUDHeadingManager) HUDOS.getHUDService(HUDOS.HUD_HEADING_SERVICE);
+
+        view = (RelativeLayout) findViewById(R.id.container);
         listView = (ListView) findViewById(R.id.list);
+        calibrationDirection = new TextView(this);
 
         deviceList = new ArrayList<ARDiscoveryDeviceService>();
         deviceNameList = new String[]{};
@@ -108,6 +200,16 @@ public class MainActivity extends Activity implements ARDiscoveryServicesDevices
             }
 
         });
+    }
+
+    public void onStart() {
+        super.onStart();
+        mHUDHeadingManager.register(this);
+    }
+
+    public void onStop() {
+        super.onStop();
+        mHUDHeadingManager.unregister(this);
     }
 
     private void initServices()
@@ -190,8 +292,7 @@ public class MainActivity extends Activity implements ARDiscoveryServicesDevices
 
 
     @Override
-    public void onResume()
-    {
+    public void onResume() {
         super.onResume();
 
         Log.d(TAG, "onResume ...");
@@ -201,12 +302,10 @@ public class MainActivity extends Activity implements ARDiscoveryServicesDevices
         registerReceivers();
 
         initServices();
-
     }
 
     @Override
-    public void onPause()
-    {
+    public void onPause() {
         Log.d(TAG, "onPause ...");
 
         unregisterReceivers();
@@ -253,5 +352,98 @@ public class MainActivity extends Activity implements ARDiscoveryServicesDevices
             listView.setAdapter(adapter);
         }
 
+    }
+
+    /**
+     * 頭の動き検知
+     * @param yaw
+     * @param pitch
+     * @param roll
+     */
+    @Override
+    public void onHeadLocation(float yaw, float pitch, float roll) {
+        System.out.println("headLocation:" + yaw + " " + pitch + " " + roll);
+        if (minYaw == 10000) {
+            minYaw = maxYaw = yaw;
+        }
+        if (isInCalibration) {
+            switch (calibrationCounter) {
+                case CALIBRATION_STEP_MINMAX:
+                    if (yaw > maxYaw) maxYaw = yaw;
+                    if (yaw < minYaw) minYaw = yaw;
+                    if (pitch > maxPitch) maxPitch = pitch;
+                    if (pitch < minPitch) minPitch = pitch;
+                    if (roll > maxRoll) maxRoll = roll;
+                    if (roll < minRoll) minRoll = roll;
+                    break;
+                case CALIBRATION_STEP_NORMAL:
+                    yawBuf.add(yaw);
+                    pitchBuf.add(pitch);
+                    rollBuf.add(roll);
+                    break;
+                default: break;
+            }
+        } else {
+            if (!isCalibrated) {
+                // Calibration
+                doCalibration();
+            }
+        }
+    }
+
+    /**
+     * キャリブレーション実施
+     */
+    private void doCalibration() {
+        if (calibrationCounter == 10 && !calibrationThread.isAlive()) {
+            calibrationThread.start();
+        }
+    }
+
+    private void finishCalibration() {
+        isInCalibration = false;
+        isCalibrated = true;
+        mHUDHeadingManager.unregister(MainActivity.this);
+
+    }
+
+    /**
+     * キャリブレーション結果表示
+     */
+    private void showCalibratedValue() {
+        System.out.println("Yaw:[" + minYaw + " < " + norYaw + " < " + maxYaw
+                        + "Pitch:[" + minPitch + " < " + norPitch + " < " + maxPitch
+                        + "Roll:[" + minRoll + " < " + norRoll + " < " + maxRoll
+        );
+    }
+
+    private void calcNormalPosition() throws Exception {
+        List<Float> yaw, pitch, roll;
+        float a = 0, b = 0, c = 0;
+        int yawLen = yawBuf.size();
+        int pitchLen = pitchBuf.size();
+        int rollLen = rollBuf.size();
+        if (yawLen < 50 || pitchLen < 50 || rollLen < 50) {
+            throw new Exception("[Error on Calibration]lack of data.");
+        }
+        // 上下１０％カット
+        int yawCutoff = yawLen / 10;
+        int pitchCutoff = pitchLen / 10;
+        int rollCutoff = rollLen / 10;
+        yaw = yawBuf.subList(yawCutoff, yawLen - yawCutoff - 1);
+        pitch = pitchBuf.subList(pitchCutoff, pitchLen - pitchCutoff - 1);
+        roll = rollBuf.subList(rollCutoff, rollLen - rollCutoff - 1);
+        for (float y : yaw) {
+            a += y;
+        }
+        norYaw = a / (float) yaw.size();
+        for (float p : pitch) {
+            b += p;
+        }
+        norPitch = b / (float) pitch.size();
+        for (float r : roll) {
+            c += r;
+        }
+        norRoll = c / (float) roll.size();
     }
 }

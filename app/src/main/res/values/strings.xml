@@ -4,4 +4,11 @@
     <string name="app_name">BebopDronePilotingNewAPI</string>
     <string name="action_settings">Settings</string>
 
+
+    <string name="calibration_direction_1">キャリブレーションを開始します。</string>
+    <string name="calibration_direction_2">指示にしたがって操作してください。</string>
+    <string name="calibration_direction_3">①３回大きく頭を回してください。</string>
+    <string name="calibration_direction_4">②リラックスした状態を１０秒間維持してください</string>
+    <string name="calibration_direction_5">キャリブレーション完了しました。</string>
+    <string name="calibration_direction_6">キャリブレーション失敗しました。</string>
 </resources>
