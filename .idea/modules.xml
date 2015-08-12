@@ -2,8 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/TestNewApi.iml" filepath="$PROJECT_DIR$/TestNewApi.iml" />
       <module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" />
+      <module fileurl="file://$PROJECT_DIR$/reconjet-bebopdrone.iml" filepath="$PROJECT_DIR$/reconjet-bebopdrone.iml" />
     </modules>
   </component>
 </project>

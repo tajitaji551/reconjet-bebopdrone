@@ -87,39 +87,15 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
 
     HUDHeadingManager mHUDHeadingManager = null;
     boolean mIsStarted = false;
+    float nowYaw = 0;
+    float nowPitch = 0;
+    float nowRoll = 0;
+    float threshold = 20;
 
     // Drone
     ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM _droneState;
 
-
-    int takeOffCounter = 2;
-    int landingCounter = 2;
-    int emergencyCounter = 3;
-    boolean counterBreaker = false;
-    int resetRate = 1000 / 5;
-    long nextTick = System.currentTimeMillis();
-    Thread counterResetter = new Thread(new Runnable() {
-        @Override
-        public void run() {
-            long now = System.currentTimeMillis();
-            try {
-                while (!counterBreaker) {
-                    if (now - nextTick <= 0) {
-                        continue;
-                    } else {
-                        Thread.sleep(now - nextTick);
-                    }
-                    takeOffCounter = 0;
-                    landingCounter = 0;
-                    emergencyCounter = 0;
-                    nextTick += resetRate;
-                }
-            } catch (Exception counterError) {
-                System.out.println("Counter Error:" + counterError.getMessage());
-                failSafe();
-            }
-        }
-    });
+    boolean isOn = false;
 
     private void failSafe() {
         if (deviceController != null) {
@@ -147,7 +123,7 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
             device = new ARDiscoveryDevice();
 
             ARDiscoveryDeviceNetService netDeviceService = (ARDiscoveryDeviceNetService) service.getDevice();
-
+            Log.d(TAG, "name:"+netDeviceService.getName()+" ip:"+netDeviceService.getIp()+" port:"+netDeviceService.getPort());
             device.initWifi(ARDISCOVERY_PRODUCT_ENUM.ARDISCOVERY_PRODUCT_ARDRONE, netDeviceService.getName(), netDeviceService.getIp(), netDeviceService.getPort());
         }
         catch (ARDiscoveryException e)
@@ -176,7 +152,7 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
     private void initIHM ()
     {
         view = (RelativeLayout) findViewById(R.id.piloting_view);
-
+/*
         emergencyBt = (Button) findViewById(R.id.emergencyBt);
         emergencyBt.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v)
@@ -476,7 +452,7 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
                 return true;
             }
         });
-
+*/
         batteryLabel = (TextView) findViewById(R.id.batteryLabel);
     }
 
@@ -486,6 +462,7 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
         super.onStart();
         mHUDHeadingManager.register(this);
         mIsStarted = true;
+        startDeviceController();
     }
 
 
@@ -501,26 +478,42 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_UP:
                 System.out.println("D-PAD UP pressed:" + keyCode);
-                takeOffCounter--;
+                if (deviceController != null) {
+                    deviceController.getFeatureARDrone3().sendPilotingTakeOff();
+                }
                 break;
             case KeyEvent.KEYCODE_DPAD_DOWN:
                 System.out.println("D-PAD DOWN pressed:" + keyCode);
-                landingCounter--;
+                if (deviceController != null) {
+                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().sendPilotingLanding();
+                }
                 break;
             case KeyEvent.KEYCODE_DPAD_LEFT:
                 System.out.println("D-PAD LEFT pressed:" + keyCode);
+                if (deviceController != null) {
+                    deviceController.getFeatureARDrone3().sendMediaStreamingVideoEnable((byte) 1);
+                }
                 break;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 System.out.println("D-PAD RIGHT pressed:" + keyCode);
+                if (deviceController != null) {
+                    deviceController.getFeatureARDrone3().sendMediaStreamingVideoEnable((byte) 0);
+                }
                 break;
             case KeyEvent.KEYCODE_DPAD_CENTER:
                 System.out.println("D-PAD CENTER pressed:" + keyCode);
                 break;
             case KeyEvent.KEYCODE_BACK:
                 System.out.println("BACK pressed:" + keyCode);
+                if (deviceController != null) {
+                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte)-50);
+                }
                 break;
             case KeyEvent.KEYCODE_BUTTON_SELECT:
                 System.out.println("SELECT pressed:" + keyCode);
+                if (deviceController != null) {
+                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) 50);
+                }
                 break;
             default:
                 System.out.println("Button pressed:" + keyCode);
@@ -541,18 +534,10 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_UP:
                 System.out.println("D-PAD UP released:" + keyCode);
-                if (takeOffCounter <= 0 && deviceController != null
-                        && _droneState == ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM.ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_LANDED) {
-                    deviceController.getFeatureARDrone3().sendPilotingTakeOff();
-                }
+
                 break;
             case KeyEvent.KEYCODE_DPAD_DOWN:
                 System.out.println("D-PAD DOWN released:" + keyCode);
-                if (landingCounter <= 0 && deviceController != null
-                        && (_droneState == ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM.ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_HOVERING
-                        || _droneState == ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM.ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_FLYING)) {
-                    deviceController.getFeatureARDrone3().sendPilotingLanding();
-                }
                 break;
             case KeyEvent.KEYCODE_DPAD_LEFT:
                 System.out.println("D-PAD LEFT released:" + keyCode);
@@ -565,9 +550,15 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
                 break;
             case KeyEvent.KEYCODE_BACK:
                 System.out.println("BACK released:" + keyCode);
+                if (deviceController != null) {
+                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte)0);
+                }
                 break;
             case KeyEvent.KEYCODE_BUTTON_SELECT:
                 System.out.println("SELECT released:" + keyCode);
+                if (deviceController != null) {
+                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte)0);
+                }
                 break;
             default:
                 System.out.println("Button released:" + keyCode);
@@ -633,7 +624,7 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
         mIsStarted = false;
         if (deviceController != null)
         {
-            deviceController.stop();
+            stopDeviceController();
         }
 
         super.onStop();
@@ -647,7 +638,43 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
      */
     @Override
     public void onHeadLocation(float yaw, float pitch, float roll) {
-        System.out.println("headLocation:" + yaw + " " + pitch + " " + roll);
+        if (deviceController == null) return;
+        nowYaw = yaw;
+        nowPitch = pitch;
+        nowRoll = roll;
+        if (yaw - MainActivity.norYaw > threshold) {
+            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte)30);
+            System.out.println("Yaw +30");
+        } else if (yaw - MainActivity.norYaw < -threshold) {
+            System.out.println("Yaw -30");
+            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte) -30);
+        } else {
+            System.out.println("Yaw 0");
+            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte) 0);
+        }
+        if (pitch - MainActivity.norPitch > threshold) {
+            System.out.println("Pitch +30");
+            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) 30);
+            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
+        } else if (pitch - MainActivity.norPitch < -threshold) {
+            System.out.println("Pitch -30");
+            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte)-30);
+            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
+        } else {
+            System.out.println("Pitch 0");
+            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) 0);
+            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
+        }
+        if (roll - MainActivity.norRoll > threshold) {
+            System.out.println("Roll +30");
+            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte) 30);
+        } else if (roll - MainActivity.norRoll < -threshold) {
+            System.out.println("Roll -30");
+            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte)-30);
+        } else {
+            System.out.println("Roll 0");
+            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte)0);
+        }
     }
 
     @Override
@@ -863,9 +890,8 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
         try
         {
             mediaCodec = MediaCodec.createDecoderByType(type);
-            throw new IOException();
         }
-        catch (IOException e)
+        catch (Exception e)
         {
             e.printStackTrace();
         }

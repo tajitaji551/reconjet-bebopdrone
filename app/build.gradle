@@ -21,6 +21,6 @@ android {
 
 dependencies {
     compile fileTree(include: ['*.jar'], dir: 'libs')
-    compile files('libs/libARMedia.jar')
-    compile 'com.android.support:support-v4:22.2.1'
+    //compile files('libs/libARMedia.jar')
+    //compile 'com.android.support:support-v4:22.2.1'
 }

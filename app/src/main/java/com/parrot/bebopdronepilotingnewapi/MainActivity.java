@@ -54,8 +54,6 @@ public class MainActivity extends Activity implements HeadLocationListener, ARDi
             System.loadLibrary("arstream_android");
             System.loadLibrary("arcontroller");
             System.loadLibrary("arcontroller_android");
-
-            ARSALPrint.enableDebugPrints();
         }
         catch (Exception e)
         {
@@ -84,8 +82,8 @@ public class MainActivity extends Activity implements HeadLocationListener, ARDi
     private static final int CALIBRATION_STEP_MINMAX = 5;
     private static final int CALIBRATION_STEP_NORMAL = 4;
     private int calibrationCounter = 10;
-    private float minYaw = 10000, maxYaw = 10000, minPitch, maxPitch, minRoll, maxRoll;
-    private float norYaw, norPitch, norRoll;
+    public static float minYaw = 10000, maxYaw = 10000, minPitch, maxPitch, minRoll, maxRoll;
+    public static float norYaw, norPitch, norRoll;
     private List<Float> yawBuf = new ArrayList<Float>();
     private List<Float> pitchBuf = new ArrayList<Float>();
     private List<Float> rollBuf = new ArrayList<Float>();
@@ -189,7 +187,7 @@ public class MainActivity extends Activity implements HeadLocationListener, ARDi
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id)
             {
-
+                if (!isCalibrated) return;
                 ARDiscoveryDeviceService service = deviceList.get(position);
 
                 Intent intent = new Intent(MainActivity.this, PilotingActivity.class);
