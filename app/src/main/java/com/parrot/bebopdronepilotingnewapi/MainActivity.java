@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -18,6 +19,7 @@ import android.widget.ListView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
+import com.parrot.arsdk.arcontroller.ARCONTROLLER_ERROR_ENUM;
 import com.parrot.arsdk.ardiscovery.ARDISCOVERY_PRODUCT_ENUM;
 import com.parrot.arsdk.ardiscovery.ARDiscoveryDeviceService;
 import com.parrot.arsdk.ardiscovery.ARDiscoveryService;
@@ -360,7 +362,7 @@ public class MainActivity extends Activity implements HeadLocationListener, ARDi
      */
     @Override
     public void onHeadLocation(float yaw, float pitch, float roll) {
-        System.out.println("headLocation:" + yaw + " " + pitch + " " + roll);
+        //System.out.println("headLocation:" + yaw + " " + pitch + " " + roll);
         if (minYaw == 10000) {
             minYaw = maxYaw = yaw;
         }

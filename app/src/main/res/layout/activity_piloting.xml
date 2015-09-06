@@ -10,22 +10,84 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:textAppearance="?android:attr/textAppearanceMedium"
-        android:text="Battery: "
-        android:id="@+id/textView"
+        android:text="XXX%"
+        android:id="@+id/batteryLabel"
         android:layout_alignParentTop="true"
-        android:layout_alignParentLeft="true"
 
-        android:textColor="#ff0000" />
+        android:textColor="#ff0000"
+        android:textSize="20dp"
+        android:textStyle="bold"
+        android:layout_centerHorizontal="true"
+        android:background="#fff" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textAppearance="?android:attr/textAppearanceMedium"
-        android:text="XXX%"
-        android:id="@+id/batteryLabel"
+        android:textAppearance="?android:attr/textAppearanceLarge"
+        android:text="Large Text"
+        android:id="@+id/mode"
+        android:textColor="#ff00ff"
+        android:textStyle="bold"
+        android:textSize="25dp"
         android:layout_alignParentTop="true"
-        android:layout_toRightOf="@+id/textView"
+        android:layout_toLeftOf="@+id/batteryLabel"
+        android:layout_marginRight="5dp"
+        android:background="#fff" />
 
-        android:textColor="#ff0000" />
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textAppearance="?android:attr/textAppearanceLarge"
+        android:text="Large Text"
+        android:id="@+id/speed"
+        android:textColor="#ff00ff"
+        android:textStyle="bold"
+        android:textSize="25dp"
+        android:background="#fff"
+        android:layout_alignParentTop="true"
+        android:layout_toRightOf="@+id/batteryLabel"
+        android:layout_marginLeft="5dp" />
+
+    <ImageView
+        android:layout_width="200dp"
+        android:layout_height="10dp"
+        android:id="@+id/roll"
+        android:layout_centerVertical="true"
+        android:layout_centerHorizontal="true"
+        android:background="#0000ff" />
+
+    <ImageView
+        android:layout_width="35dp"
+        android:layout_height="8dp"
+        android:id="@+id/pitch"
+        android:layout_centerVertical="true"
+        android:layout_alignParentLeft="true"
+        android:background="#fff" />
+
+    <ImageView
+        android:layout_width="8dp"
+        android:layout_height="35dp"
+        android:id="@+id/yaw"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:background="#fff" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="New Text"
+        android:id="@+id/latlang"
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentRight="true"
+        android:background="#ffffff"
+        android:textColor="#000" />
+
+    <TextView
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:id="@+id/wifi"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentRight="true"
+        android:background="#fff" />
 
 </RelativeLayout>

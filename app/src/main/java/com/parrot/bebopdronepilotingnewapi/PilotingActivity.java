@@ -4,19 +4,22 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.location.Criteria;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.util.Log;
 import android.view.KeyEvent;
-import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
-import android.view.View;
-import android.widget.Button;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.parrot.arsdk.arcommands.ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM;
 import com.parrot.arsdk.arcontroller.ARCONTROLLER_DEVICE_STATE_ENUM;
@@ -34,39 +37,40 @@ import com.parrot.arsdk.ardiscovery.ARDiscoveryDevice;
 import com.parrot.arsdk.ardiscovery.ARDiscoveryDeviceNetService;
 import com.parrot.arsdk.ardiscovery.ARDiscoveryDeviceService;
 import com.parrot.arsdk.ardiscovery.ARDiscoveryException;
+import com.parrot.arsdk.armedia.ARMediaNotificationReceiver;
+import com.parrot.arsdk.armedia.ARMediaNotificationReceiverListener;
 import com.reconinstruments.os.HUDOS;
 import com.reconinstruments.os.hardware.sensors.HUDHeadingManager;
 import com.reconinstruments.os.hardware.sensors.HeadLocationListener;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class PilotingActivity extends Activity implements HeadLocationListener, ARDeviceControllerListener, ARDeviceControllerStreamListener, SurfaceHolder.Callback
+public class PilotingActivity extends Activity
+        implements HeadLocationListener, // ヘッドマウント
+        ARDeviceControllerListener, // デバイス
+        ARDeviceControllerStreamListener, // 映像
+        SurfaceHolder.Callback, // 映像
+        ARMediaNotificationReceiverListener, // ドローンメディア？
+        LocationListener // GPS
 {
     private static String TAG = PilotingActivity.class.getSimpleName();
     public static String EXTRA_DEVICE_SERVICE = "pilotingActivity.extra.device.service";
+    private static final int LOCATION_BUFFER_SIZE = 10; // 200ms
 
     public ARDeviceController deviceController;
     public ARDiscoveryDeviceService service;
     public ARDiscoveryDevice device;
 
-    private Button emergencyBt;
-    private Button takeoffBt;
-    private Button landingBt;
-
-    private Button gazUpBt;
-    private Button gazDownBt;
-    private Button yawLeftBt;
-    private Button yawRightBt;
-
-    private Button forwardBt;
-    private Button backBt;
-    private Button rollLeftBt;
-    private Button rollRightBt;
-
-    private TextView batteryLabel;
+    TextView batteryLabel;
+    TextView modeLabel;
+    TextView speedLabel, wifiLabel, latlangLabel;
 
     private AlertDialog alertDialog;
 
@@ -85,13 +89,49 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
     private boolean waitForIFrame = true;
     private ByteBuffer [] buffers;
 
+    // media receiver
+    private ARMediaNotificationReceiver receiver;
+
     HUDHeadingManager mHUDHeadingManager = null;
     boolean mIsStarted = false;
-    float nowYaw = 0;
-    float nowPitch = 0;
-    float nowRoll = 0;
-    float threshold = 20;
+    float nowYaw = 0, lastYaw = 0;
+    float nowPitch = 0, lastPitch = 0;
+    float nowRoll = 0, lastRoll = 0;
+    float rawThreshold = 20;
+    boolean senderTermFlag = false;
+    static List<Float> yawList = new ArrayList<Float>(LOCATION_BUFFER_SIZE);
+    static List<Float> pitchList = new ArrayList<Float>(LOCATION_BUFFER_SIZE);
+    static List<Float> rollList = new ArrayList<Float>(LOCATION_BUFFER_SIZE);
 
+    // 飛行ステータス
+    private int emergencyCounter = 2; // 0で緊急着陸
+    private boolean isLanding = true; // true:着陸状態、false:飛行状態
+    private boolean isUpDownMode = false; // true:上下モード、false:先進交代モード
+
+    // GPS関係
+    LocationManager locationManager;
+    Timer locationTimer;
+    long time;
+    private int gpsAccuracy;
+    private double lat, lang;
+    private static final int TWO_MINUTES = 1000 * 60 * 2;
+    private Location current;
+
+    // コマンド判定関係
+    float frameRate = 1000 / 5; // 200ms
+    long nextTick;
+    Thread commandDetectThread, sender;
+    CommandDetector commandDetector;
+    float yawSlope, pitchSlope, rollSlope;
+    float lastYawSlope, lastPitchSlope, lastRollSlope;
+    float moveDetectionThreshold = 5.0f; // 動き検知のしきい値
+    boolean detectedYaw = false, detectedPitch = false, detectedRoll = false;
+
+    // ハンドラー
+    Handler handler = new Handler();
+
+
+    boolean nor = false;
     // Drone
     ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM _droneState;
 
@@ -108,10 +148,10 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
     {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_piloting);
-
         mHUDHeadingManager = (HUDHeadingManager) HUDOS.getHUDService(HUDOS.HUD_HEADING_SERVICE);
 
         initIHM ();
+        /*
         initVideoVars();
 
         Intent intent = getIntent();
@@ -147,324 +187,108 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
                 e.printStackTrace();
             }
         }
+        */
     }
 
     private void initIHM ()
     {
         view = (RelativeLayout) findViewById(R.id.piloting_view);
-/*
-        emergencyBt = (Button) findViewById(R.id.emergencyBt);
-        emergencyBt.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v)
-            {
-                if ((deviceController != null) && (deviceController.getFeatureARDrone3() != null))
-                {
-                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().sendPilotingEmergency();
-                }
-            }
-        });
-
-        takeoffBt = (Button) findViewById(R.id.takeoffBt);
-        takeoffBt.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v)
-            {
-                if ((deviceController != null) && (deviceController.getFeatureARDrone3() != null))
-                {
-                    //send takeOff
-                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().sendPilotingTakeOff();
-                }
-            }
-        });
-        landingBt = (Button) findViewById(R.id.landingBt);
-        landingBt.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v)
-            {
-                if ((deviceController != null) && (deviceController.getFeatureARDrone3() != null))
-                {
-                    //send landing
-                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().sendPilotingLanding();
-                }
-            }
-        });
-
-        gazUpBt = (Button) findViewById(R.id.gazUpBt);
-        gazUpBt.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event)
-            {
-                switch (event.getAction())
-                {
-                    case MotionEvent.ACTION_DOWN:
-                        v.setPressed(true);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) 50);
-                        }
-                        break;
-
-                    case MotionEvent.ACTION_UP:
-                        v.setPressed(false);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte)0);
-
-                        }
-                        break;
-
-                    default:
-
-                        break;
-                }
-
-                return true;
-            }
-        });
-
-        gazDownBt = (Button) findViewById(R.id.gazDownBt);
-        gazDownBt.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event)
-            {
-                switch (event.getAction())
-                {
-                    case MotionEvent.ACTION_DOWN:
-                        v.setPressed(true);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte)-50);
-
-                        }
-                        break;
-
-                    case MotionEvent.ACTION_UP:
-                        v.setPressed(false);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte)0);
-                        }
-                        break;
-
-                    default:
-
-                        break;
-                }
-
-                return true;
-            }
-        });
-        yawLeftBt = (Button) findViewById(R.id.yawLeftBt);
-        yawLeftBt.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event)
-            {
-                switch (event.getAction())
-                {
-                    case MotionEvent.ACTION_DOWN:
-                        v.setPressed(true);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte)-50);
-
-                        }
-                        break;
-
-                    case MotionEvent.ACTION_UP:
-                        v.setPressed(false);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte) 0);
-                        }
-                        break;
-
-                    default:
-
-                        break;
-                }
-
-                return true;
-            }
-        });
-        yawRightBt = (Button) findViewById(R.id.yawRightBt);
-        yawRightBt.setOnTouchListener(new View.OnTouchListener()
-        {
-            @Override
-            public boolean onTouch(View v, MotionEvent event)
-            {
-                switch (event.getAction())
-                {
-                    case MotionEvent.ACTION_DOWN:
-                        v.setPressed(true);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte) 50);
-
-                        }
-                        break;
-
-                    case MotionEvent.ACTION_UP:
-                        v.setPressed(false);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte) 0);
-                        }
-                        break;
-
-                    default:
-
-                        break;
-                }
-
-                return true;
-            }
-        });
-
-        forwardBt = (Button) findViewById(R.id.forwardBt);
-        forwardBt.setOnTouchListener(new View.OnTouchListener()
-        {
-            @Override
-            public boolean onTouch(View v, MotionEvent event)
-            {
-                switch (event.getAction())
-                {
-                    case MotionEvent.ACTION_DOWN:
-                        v.setPressed(true);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) 50);
-                            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
-                        }
-                        break;
-
-                    case MotionEvent.ACTION_UP:
-                        v.setPressed(false);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) 0);
-                            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
-                        }
-                        break;
-
-                    default:
-
-                        break;
-                }
-
-                return true;
-            }
-        });
-        backBt = (Button) findViewById(R.id.backBt);
-        backBt.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event)
-            {
-                switch (event.getAction())
-                {
-                    case MotionEvent.ACTION_DOWN:
-                        v.setPressed(true);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte)-50);
-                            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte)1);
-                        }
-                        break;
-
-                    case MotionEvent.ACTION_UP:
-                        v.setPressed(false);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte)0);
-                            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte)0);
-                        }
-                        break;
-
-                    default:
-
-                        break;
-                }
-
-                return true;
-            }
-        });
-        rollLeftBt = (Button) findViewById(R.id.rollLeftBt);
-        rollLeftBt.setOnTouchListener(new View.OnTouchListener()
-        {
-            @Override
-            public boolean onTouch(View v, MotionEvent event)
-            {
-                switch (event.getAction())
-                {
-                    case MotionEvent.ACTION_DOWN:
-                        v.setPressed(true);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte) -50);
-                            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
-                        }
-                        break;
-
-                    case MotionEvent.ACTION_UP:
-                        v.setPressed(false);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte) 0);
-                            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
-                        }
-                        break;
-
-                    default:
-
-                        break;
-                }
-
-                return true;
-            }
-        });
-        rollRightBt = (Button) findViewById(R.id.rollRightBt);
-        rollRightBt.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event)
-            {
-                switch (event.getAction())
-                {
-                    case MotionEvent.ACTION_DOWN:
-                        v.setPressed(true);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte)50);
-                            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte)1);
-                        }
-                        break;
-
-                    case MotionEvent.ACTION_UP:
-                        v.setPressed(false);
-                        if (deviceController != null)
-                        {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte)0);
-                            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte)0);
-                        }
-                        break;
-
-                    default:
-
-                        break;
-                }
-
-                return true;
-            }
-        });
-*/
         batteryLabel = (TextView) findViewById(R.id.batteryLabel);
+        modeLabel = (TextView) findViewById(R.id.mode);
+        speedLabel = (TextView) findViewById(R.id.speed);
+        wifiLabel = (TextView) findViewById(R.id.wifi);
+        latlangLabel = (TextView) findViewById(R.id.latlang);
+        commandDetector = new CommandDetector(yawList, pitchList, rollList);
     }
 
     @Override
     public void onStart()
     {
         super.onStart();
-        mHUDHeadingManager.register(this);
+
         mIsStarted = true;
-        startDeviceController();
+        //startDeviceController();
+        mHUDHeadingManager.register(this);
+        // コントローラータイマー開始
+        startCommandDetect();
+        /*
+        // ブロードキャスト
+        if (receiver == null) {
+            receiver = new ARMediaNotificationReceiver(this);
+        }
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ARMediaManager.ARMediaManagerNotificationDictionaryIsInitKey);
+        filter.addAction(ARMediaManager.ARMediaManagerNotificationDictionaryMediaAddedKey);
+        filter.addAction(ARMediaManager.ARMediaManagerNotificationDictionaryUpdatedKey);
+        filter.addAction(ARMediaManager.ARMediaManagerNotificationDictionaryUpdatingKey);
+        registerReceiver(receiver, filter);
+        enableGPS();
+        */
     }
 
+    private void enableGPS() {
+        locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        if (locationManager == null) return;
+        final Criteria criteria = new Criteria();
+        criteria.setBearingRequired(false);
+        criteria.setSpeedRequired(false);
+        final String provider = locationManager.getBestProvider(criteria, true);
+        if (provider == null) {
+            disableGPS();
+        }
+        // 5分以内の位置情報があるか
+        final Location lastKnownLocation = locationManager.getLastKnownLocation(provider);
+        if (lastKnownLocation != null && (new Date().getTime() - lastKnownLocation.getTime()) <= (5 * 60 * 1000L)) {
+            setLocation(lastKnownLocation);
+            return;
+        }
+        locationTimer = new Timer(true);
+        locationTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (time == 1000L) {
+                            Toast.makeText(PilotingActivity.this, "現在地を特定しています。", Toast.LENGTH_LONG).show();
+                        } else if (time >= (30 * 1000L)) {
+                            Toast.makeText(PilotingActivity.this, "現在地を特定できませんでした。", Toast.LENGTH_LONG).show();
+                            disableGPS();
+                        }
+                        time = time + 1000L;
+                    }
+                });
+            }
+        }, 0, 1000);
+        locationManager.requestLocationUpdates(provider, 60000, 0, this);
+    }
+
+    private void disableGPS() {
+        if (locationTimer != null) {
+            locationTimer.cancel();
+            locationTimer.purge();
+            locationTimer = null;
+        }
+        if (locationManager != null) {
+            locationManager.removeUpdates(this);
+            locationManager = null;
+        }
+    }
+
+    private void setLocation(Location location) {
+        Toast.makeText(PilotingActivity.this, "現在地を特定できました。", Toast.LENGTH_LONG).show();
+        current = location;
+        // ホーム更新
+        if (deviceController != null) {
+            ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().sendGPSSettingsSendControllerGPS(
+                    current.getLatitude(),
+                    current.getLongitude(),
+                    current.getAltitude(),
+                    current.getAccuracy(),
+                    current.getAccuracy()
+            );
+        }
+    }
 
     /**
      * D-Pad制御
@@ -474,46 +298,64 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
      */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        ARCONTROLLER_ERROR_ENUM error;
         System.out.println("onKeyDown code:" + keyCode + " action:" + event.getAction() + " hoge:" + event.getCharacters());
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_UP:
                 System.out.println("D-PAD UP pressed:" + keyCode);
                 if (deviceController != null) {
-                    deviceController.getFeatureARDrone3().sendPilotingTakeOff();
+                    if (!isUpDownMode) {
+                        deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) 30);
+                    }
                 }
                 break;
             case KeyEvent.KEYCODE_DPAD_DOWN:
                 System.out.println("D-PAD DOWN pressed:" + keyCode);
                 if (deviceController != null) {
-                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().sendPilotingLanding();
+                    deviceController.getFeatureARDrone3().sendPilotingLanding();
+                    if (!isUpDownMode) {
+                        deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) -30);
+                    }
                 }
                 break;
+            // 写真を撮る
             case KeyEvent.KEYCODE_DPAD_LEFT:
                 System.out.println("D-PAD LEFT pressed:" + keyCode);
                 if (deviceController != null) {
-                    deviceController.getFeatureARDrone3().sendMediaStreamingVideoEnable((byte) 1);
+                    error = deviceController.getFeatureARDrone3().sendMediaRecordPictureV2();
                 }
                 break;
+            // 飛行モード切り替え
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 System.out.println("D-PAD RIGHT pressed:" + keyCode);
                 if (deviceController != null) {
-                    deviceController.getFeatureARDrone3().sendMediaStreamingVideoEnable((byte) 0);
+                    isUpDownMode = !isUpDownMode;
+                    modeLabel.setText(isUpDownMode ? "上下" : "前後");
                 }
                 break;
-            case KeyEvent.KEYCODE_DPAD_CENTER:
-                System.out.println("D-PAD CENTER pressed:" + keyCode);
-                break;
-            case KeyEvent.KEYCODE_BACK:
+            // バックキーは緊急着陸
+            case KeyEvent.KEYCODE_POWER:
                 System.out.println("BACK pressed:" + keyCode);
-                if (deviceController != null) {
-                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte)-50);
+                if (emergencyCounter > 0) {
+                    emergencyCounter--;
+                    return true;
+                }
+                if (deviceController != null && emergencyCounter <= 0) {
+                    error = deviceController.getFeatureARDrone3().sendPilotingEmergency();
+                    emergencyCounter = 2;
+                    stopDeviceController();
                 }
                 break;
-            case KeyEvent.KEYCODE_BUTTON_SELECT:
+            // 選択ボタンで離着陸
+            case KeyEvent.KEYCODE_DPAD_CENTER:
                 System.out.println("SELECT pressed:" + keyCode);
-                if (deviceController != null) {
-                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) 50);
+                if (deviceController == null) break;
+                if (!isLanding) {
+                    error = deviceController.getFeatureARDrone3().sendPilotingLanding();
+                } else {
+                    error = deviceController.getFeatureARDrone3().sendPilotingTakeOff();
                 }
+                isLanding = !isLanding;
                 break;
             default:
                 System.out.println("Button pressed:" + keyCode);
@@ -522,59 +364,11 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
         return super.onKeyDown(keyCode, event);
     }
 
-    /**
-     * D-Pad制御
-     * @param keyCode
-     * @param event
-     * @return
-     */
-    @Override
-    public boolean onKeyUp(int keyCode, KeyEvent event) {
-        System.out.println("onKeyUp code:" + keyCode + " action:" + event.getAction() + " hoge:" + event.getCharacters());
-        switch (keyCode) {
-            case KeyEvent.KEYCODE_DPAD_UP:
-                System.out.println("D-PAD UP released:" + keyCode);
-
-                break;
-            case KeyEvent.KEYCODE_DPAD_DOWN:
-                System.out.println("D-PAD DOWN released:" + keyCode);
-                break;
-            case KeyEvent.KEYCODE_DPAD_LEFT:
-                System.out.println("D-PAD LEFT released:" + keyCode);
-                break;
-            case KeyEvent.KEYCODE_DPAD_RIGHT:
-                System.out.println("D-PAD RIGHT released:" + keyCode);
-                break;
-            case KeyEvent.KEYCODE_DPAD_CENTER:
-                System.out.println("D-PAD CENTER released:" + keyCode);
-                break;
-            case KeyEvent.KEYCODE_BACK:
-                System.out.println("BACK released:" + keyCode);
-                if (deviceController != null) {
-                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte)0);
-                }
-                break;
-            case KeyEvent.KEYCODE_BUTTON_SELECT:
-                System.out.println("SELECT released:" + keyCode);
-                if (deviceController != null) {
-                    ARCONTROLLER_ERROR_ENUM error = deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte)0);
-                }
-                break;
-            default:
-                System.out.println("Button released:" + keyCode);
-                break;
-        }
-        return super.onKeyDown(keyCode, event);
-    }
-
     private void startDeviceController() {
         if (deviceController != null) {
             final AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(PilotingActivity.this);
-
             // set title
             alertDialogBuilder.setTitle("Connecting ...");
-
-
             // create alert dialog
             alertDialog = alertDialogBuilder.create();
             alertDialog.show();
@@ -588,45 +382,84 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
         }
     }
 
+    /**
+     * コントローラータスク、コマンド判定
+     */
+    public void startCommandDetect() {
+        nextTick = System.currentTimeMillis();
+        commandDetectThread = new Thread(commandDetector);
+        sender = new Thread(new Runnable() {
+            long now;
+            @Override
+            public void run() {
+                float[] command;
+                while (!senderTermFlag) {
+                    try {
+                        command = commandDetector.popCommand();
+                        if (command != null/* && deviceController != null*/) {
+                            Log.d("COMMAND", "yaw:"+command[0]+" pitch:"+command[1]+" roll:"+command[2]);
+                            if (isUpDownMode) {
+                                deviceController.getFeatureARDrone3().setPilotingPCMD(
+                                        (byte) 1,
+                                        (byte) command[2],
+                                        (byte) 0,
+                                        (byte) command[0],
+                                        (byte) command[1],
+                                        (byte) 0);
+                            } else {
+                                deviceController.getFeatureARDrone3().setPilotingPCMD(
+                                        (byte) 1,
+                                        (byte) command[2],
+                                        (byte) command[1],
+                                        (byte) command[0],
+                                        (byte) 0,
+                                        (byte) 0);
+                            }
+                        }
+                        Thread.sleep(200);
+                    } catch (Exception anyException) {
+                        // Don't stop this loop.
+                        continue;
+                    }
+                }
+            }
+        });
+        commandDetectThread.start();
+        sender.start();
+    }
+
     private void stopDeviceController()
     {
         if (deviceController != null)
         {
-            final AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(PilotingActivity.this);
-
-            // set title
-            alertDialogBuilder.setTitle("Disconnecting ...");
-
             // show it
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    // create alert dialog
-                    alertDialog = alertDialogBuilder.create();
-                    alertDialog.show();
-
                     ARCONTROLLER_ERROR_ENUM error = deviceController.stop();
-
                     if (error != ARCONTROLLER_ERROR_ENUM.ARCONTROLLER_OK) {
                         finish();
                     }
                 }
             });
-            //alertDialog.show();
-
         }
     }
 
     @Override
     protected void onStop()
     {
+        commandDetector.term();
+        commandDetectThread = null;
+        senderTermFlag = true;
+        sender = null;
         mHUDHeadingManager.unregister(this);
         mIsStarted = false;
         if (deviceController != null)
         {
             stopDeviceController();
         }
-
+        // ブロードキャスト解除
+        unregisterReceiver(receiver);
         super.onStop();
     }
 
@@ -638,65 +471,104 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
      */
     @Override
     public void onHeadLocation(float yaw, float pitch, float roll) {
-        if (deviceController == null) return;
-        nowYaw = yaw;
-        nowPitch = pitch;
-        nowRoll = roll;
-        if (yaw - MainActivity.norYaw > threshold) {
-            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte)30);
-            System.out.println("Yaw +30");
-        } else if (yaw - MainActivity.norYaw < -threshold) {
-            System.out.println("Yaw -30");
-            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte) -30);
+        if (!nor) {
+            MainActivity.norYaw = yaw;
+            MainActivity.norPitch = pitch;
+            MainActivity.norRoll = roll;
+            nor = true;
+        }
+        lastYaw = yaw;
+        lastPitch = pitch;
+        lastRoll = roll;
+        synchronized (yawList) {
+            yawList.add(yaw);
+            if (yawList.size() > LOCATION_BUFFER_SIZE) yawList.remove(0);
+        }
+        synchronized (pitchList) {
+            pitchList.add(pitch);
+            if (pitchList.size() > LOCATION_BUFFER_SIZE) pitchList.remove(0);
+        }
+        synchronized (rollList) {
+            rollList.add(roll);
+            if (rollList.size() > LOCATION_BUFFER_SIZE) rollList.remove(0);
+        }
+    }
+
+    /**
+     * コマンド送信
+     */
+    private void sendCommand() {
+        //if (deviceController == null) return;
+        // yawコマンド
+        System.out.println("diffYaw:" + (nowYaw - MainActivity.norYaw));
+        if (detectedYaw && Math.abs(nowYaw - MainActivity.norYaw) > rawThreshold) {
+            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte) ((int) (yawSlope * 10f)));
+            System.out.println("sendCmd setPilotingPCMDYaw:" + ((int) (yawSlope * 10f)));
         } else {
-            System.out.println("Yaw 0");
             deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte) 0);
+            System.out.println("sendCmd setPilotingPCMDYaw:" + 0);
         }
-        if (pitch - MainActivity.norPitch > threshold) {
-            System.out.println("Pitch +30");
-            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) 30);
+        // pitchコマンド
+        if (isUpDownMode) { // 上下モード
+            if (detectedPitch && Math.abs(nowPitch - MainActivity.norPitch) > rawThreshold) {
+                deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) ((int) (pitchSlope * 10f)));
+                System.out.println("sendCmd setPilotingPCMDGaz:" + ((int) (pitchSlope * 10f)));
+            } else {
+                deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) 0);
+                System.out.println("sendCmd setPilotingPCMDGaz:" + 0);
+            }
+        } else { // 前後モード
+            if (detectedPitch && Math.abs(nowPitch - MainActivity.norPitch) > rawThreshold) {
+                deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) ((int) (pitchSlope * 10f)));
+                deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
+                System.out.println("sendCmd setPilotingPCMDPitch:" + ((int) (pitchSlope * 10f)));
+            } else {
+                deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) 0);
+                deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
+                System.out.println("sendCmd setPilotingPCMDPitch:" + 0);
+            }
+        }
+        // rollコマンド
+        if (detectedRoll && Math.abs(nowRoll - MainActivity.norRoll) > rawThreshold) {
+            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte) ((int) (rollSlope * 10f)));
             deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
-        } else if (pitch - MainActivity.norPitch < -threshold) {
-            System.out.println("Pitch -30");
-            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte)-30);
-            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
+            System.out.println("sendCmd setPilotingPCMDRoll:" + ((int) (rollSlope * 10f)));
         } else {
-            System.out.println("Pitch 0");
-            deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) 0);
+            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte) 0);
             deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
-        }
-        if (roll - MainActivity.norRoll > threshold) {
-            System.out.println("Roll +30");
-            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte) 30);
-        } else if (roll - MainActivity.norRoll < -threshold) {
-            System.out.println("Roll -30");
-            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte)-30);
-        } else {
-            System.out.println("Roll 0");
-            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte)0);
+            System.out.println("sendCmd setPilotingPCMDRoll:" + 0);
         }
     }
 
-    @Override
-    public void onBackPressed() {
-        stopDeviceController();
-    }
-
-    public void onUpdateBattery(final int percent)
-    {
+    public void onUpdateBattery(final int percent) {
         runOnUiThread(new Runnable() {
             @Override
-            public void run()
-            {
+            public void run() {
                 batteryLabel.setText(String.format("%d%%", percent));
             }
         });
+    }
 
+    public void onUpdateSpeed(final float dx, final float dy, final float dz) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                speedLabel.setText(dx + " - " + dy + " - " + dz + "(m/s)");
+            }
+        });
+    }
+
+    public void onUpdateLatLang(final float lat, final float lang, final float alti) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                latlangLabel.setText("GPS: " + lat + " - " + lang + " - " + alti);
+            }
+        });
     }
 
     @Override
-    public void onStateChanged (ARDeviceController deviceController, ARCONTROLLER_DEVICE_STATE_ENUM newState, ARCONTROLLER_ERROR_ENUM error)
-    {
+    public void onStateChanged (ARDeviceController deviceController, ARCONTROLLER_DEVICE_STATE_ENUM newState, ARCONTROLLER_ERROR_ENUM error) {
         Log.i(TAG, "onStateChanged ... newState:" + newState+" error: "+ error );
 
         switch (newState)
@@ -742,15 +614,33 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
     {
         if (elementDictionary != null)
         {
-            if (commandKey == ARCONTROLLER_DICTIONARY_KEY_ENUM.ARCONTROLLER_DICTIONARY_KEY_COMMON_COMMONSTATE_BATTERYSTATECHANGED)
-            {
-                ARControllerArgumentDictionary<Object> args = elementDictionary.get(ARControllerDictionary.ARCONTROLLER_DICTIONARY_SINGLE_KEY);
-
-                if (args != null)
-                {
+            ARControllerArgumentDictionary<Object> args = elementDictionary.get(ARControllerDictionary.ARCONTROLLER_DICTIONARY_SINGLE_KEY);
+            if (args != null) {
+                // バッテリー残量
+                if (commandKey == ARCONTROLLER_DICTIONARY_KEY_ENUM.ARCONTROLLER_DICTIONARY_KEY_COMMON_COMMONSTATE_BATTERYSTATECHANGED) {
                     Integer batValue = (Integer) args.get("arcontroller_dictionary_key_common_commonstate_batterystatechanged_percent");
-
                     onUpdateBattery(batValue);
+                }
+                // ポジション
+                else if (commandKey == ARCONTROLLER_DICTIONARY_KEY_ENUM.ARCONTROLLER_DICTIONARY_KEY_ARDRONE3_PILOTINGSTATE_POSITIONCHANGED) {
+                    Float latValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_latitude");
+                    Float langValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_longitude");
+                    Float altiValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_altitude");
+                    onUpdateLatLang(latValue, langValue, altiValue);
+                }
+                // 速度変化
+                else if (commandKey == ARCONTROLLER_DICTIONARY_KEY_ENUM.ARCONTROLLER_DICTIONARY_KEY_ARDRONE3_PILOTINGSTATE_SPEEDCHANGED) {
+                    Float speedXValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedx");
+                    Float speedYValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedy");
+                    Float speedZValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedz");
+                    onUpdateSpeed(speedXValue, speedYValue, speedZValue);
+                }
+                // 飛行状態
+                else if (commandKey == ARCONTROLLER_DICTIONARY_KEY_ENUM.ARCONTROLLER_DICTIONARY_KEY_ARDRONE3_PILOTINGSTATE_ATTITUDECHANGED) {
+                    Float yawValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_attitudechanged_yaw");
+                    Float pitchValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_attitudechanged_pitch");
+                    Float rollValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_attitudechanged_roll");
+                    Log.d("機体情報", "yaw:" + yawValue + " pitch:" + pitchValue + " roll:" + rollValue);
                 }
             }
         }
@@ -988,12 +878,103 @@ public class PilotingActivity extends Activity implements HeadLocationListener, 
 
     @SuppressLint("NewApi")
     @Override
-    public void surfaceDestroyed(SurfaceHolder holder)
-    {
+    public void surfaceDestroyed(SurfaceHolder holder) {
         readyLock.lock();
         releaseMediaCodec();
         readyLock.unlock();
     }
 
-    //endregion video
+    @Override
+    public void onNotificationDictionaryIsInit() {
+        Log.d(TAG, "ディレクトリ初期化");
+    }
+
+    @Override
+    public void onNotificationDictionaryIsUpdated(boolean b) {
+        Log.d(TAG, "ディレクトリ更新済み");
+    }
+
+    @Override
+    public void onNotificationDictionaryIsUpdating(double v) {
+        Log.d(TAG, "ディレクトリ更新中");
+    }
+
+    @Override
+    public void onNotificationDictionaryMediaAdded(String s) {
+        Log.d(TAG, "ディレクトリにメディア追加:" + s);
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+        if (isBetterLocation(location, current)) {
+            setLocation(location);
+            disableGPS();
+        }
+    }
+
+    @Override
+    public void onStatusChanged(String provider, int status, Bundle extras) {
+    }
+
+    @Override
+    public void onProviderEnabled(String provider) {
+    }
+
+    @Override
+    public void onProviderDisabled(String provider) {
+    }
+
+    /** Determines whether one Location reading is better than the current Location fix
+     * @param location  The new Location that you want to evaluate
+     * @param currentBestLocation  The current Location fix, to which you want to compare the new one
+     */
+    protected boolean isBetterLocation(Location location, Location currentBestLocation) {
+        if (currentBestLocation == null) {
+            // A new location is always better than no location
+            return true;
+        }
+
+        // Check whether the new location fix is newer or older
+        long timeDelta = location.getTime() - currentBestLocation.getTime();
+        boolean isSignificantlyNewer = timeDelta > TWO_MINUTES;
+        boolean isSignificantlyOlder = timeDelta < -TWO_MINUTES;
+        boolean isNewer = timeDelta > 0;
+
+        // If it's been more than two minutes since the current location, use the new location
+        // because the user has likely moved
+        if (isSignificantlyNewer) {
+            return true;
+            // If the new location is more than two minutes older, it must be worse
+        } else if (isSignificantlyOlder) {
+            return false;
+        }
+
+        // Check whether the new location fix is more or less accurate
+        int accuracyDelta = (int) (location.getAccuracy() - currentBestLocation.getAccuracy());
+        boolean isLessAccurate = accuracyDelta > 0;
+        boolean isMoreAccurate = accuracyDelta < 0;
+        boolean isSignificantlyLessAccurate = accuracyDelta > 200;
+
+        // Check if the old and new location are from the same provider
+        boolean isFromSameProvider = isSameProvider(location.getProvider(),
+                currentBestLocation.getProvider());
+
+        // Determine location quality using a combination of timeliness and accuracy
+        if (isMoreAccurate) {
+            return true;
+        } else if (isNewer && !isLessAccurate) {
+            return true;
+        } else if (isNewer && !isSignificantlyLessAccurate && isFromSameProvider) {
+            return true;
+        }
+        return false;
+    }
+
+    /** Checks whether two providers are the same */
+    private boolean isSameProvider(String provider1, String provider2) {
+        if (provider1 == null) {
+            return provider2 == null;
+        }
+        return provider1.equals(provider2);
+    }
 }
