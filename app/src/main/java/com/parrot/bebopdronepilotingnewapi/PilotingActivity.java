@@ -196,13 +196,6 @@ public class PilotingActivity extends Activity
                 //create the deviceController
                 deviceController = new ARDeviceController (device);
                 deviceController.addListener(this);
-                /*
-                ARCommand.setARDrone3GPSSettingsStateGPSUpdateStateChangedListener(allListener);
-                ARCommand.setARDrone3PilotingStateSpeedChangedListener(allListener);
-                ARCommand.setARDrone3PilotingStatePositionChangedListener(allListener);
-                ARCommand.setARDrone3PilotingStateAltitudeChangedListener(allListener);
-                ARCommand.setARDrone3PilotingStateAttitudeChangedListener(allListener);
-                */
                 deviceController.addStreamListener(this);
 
 
@@ -372,14 +365,14 @@ public class PilotingActivity extends Activity
             case KeyEvent.KEYCODE_DPAD_CENTER:
                 System.out.println("SELECT pressed:" + keyCode);
                 if (deviceController == null) break;
-                /*
+
                 if (!isLanding) {
                     error = deviceController.getFeatureARDrone3().sendPilotingLanding();
                 } else {
                     error = deviceController.getFeatureARDrone3().sendPilotingTakeOff();
                 }
                 isLanding = !isLanding;
-                */
+
                 break;
             default:
                 System.out.println("Button pressed:" + keyCode);
@@ -496,6 +489,9 @@ public class PilotingActivity extends Activity
     @Override
     public void onHeadLocation(float yaw, float pitch, float roll) {
         Log.d("HEAD", yaw + " " + pitch + " " + roll);
+        if (meterView != null) {
+            meterView.update(yaw, pitch, roll, 0, 0, 0);
+        }
         if (!nor) {
             MainActivity.norYaw = yaw;
             MainActivity.norPitch = pitch;
@@ -789,7 +785,7 @@ public class PilotingActivity extends Activity
         meterView.setLayoutParams(fullP);
         sfView.getHolder().addCallback(this);
         view.addView(sfView, 0);
-        view.addView(sfView, 1);
+        view.addView(meterView, 1);
     }
 
     @SuppressLint("NewApi")
@@ -797,8 +793,9 @@ public class PilotingActivity extends Activity
     {
         /* This will be run either before or after decoding a frame. */
         readyLock.lock();
-
+        view.removeView(meterView);
         view.removeView(sfView);
+        meterView = null;
         sfView = null;
 
         releaseMediaCodec();

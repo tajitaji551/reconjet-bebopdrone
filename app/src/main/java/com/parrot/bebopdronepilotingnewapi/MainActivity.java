@@ -11,7 +11,6 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
-import android.view.KeyEvent;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -19,13 +18,12 @@ import android.widget.ListView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
-import com.parrot.arsdk.arcontroller.ARCONTROLLER_ERROR_ENUM;
 import com.parrot.arsdk.ardiscovery.ARDISCOVERY_PRODUCT_ENUM;
 import com.parrot.arsdk.ardiscovery.ARDiscoveryDeviceService;
 import com.parrot.arsdk.ardiscovery.ARDiscoveryService;
 import com.parrot.arsdk.ardiscovery.receivers.ARDiscoveryServicesDevicesListUpdatedReceiver;
 import com.parrot.arsdk.ardiscovery.receivers.ARDiscoveryServicesDevicesListUpdatedReceiverDelegate;
-import com.parrot.arsdk.arsal.ARSALPrint;
+
 import com.reconinstruments.os.HUDOS;
 import com.reconinstruments.os.hardware.sensors.HUDHeadingManager;
 import com.reconinstruments.os.hardware.sensors.HeadLocationListener;
@@ -33,8 +31,7 @@ import com.reconinstruments.os.hardware.sensors.HeadLocationListener;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MainActivity extends Activity implements HeadLocationListener, ARDiscoveryServicesDevicesListUpdatedReceiverDelegate
-{
+public class MainActivity extends Activity implements ARDiscoveryServicesDevicesListUpdatedReceiverDelegate, HeadLocationListener {
     private static String TAG = MainActivity.class.getSimpleName();
 
     static
@@ -123,7 +120,7 @@ public class MainActivity extends Activity implements HeadLocationListener, ARDi
                         calibrationDirection.setText(R.string.calibration_direction_3);
                     }
                 });
-                Thread.sleep(15000);
+                Thread.sleep(10000);
                 calibrationCounter = CALIBRATION_STEP_NORMAL;
                 runOnUiThread(new Runnable() {
                     @Override
@@ -131,7 +128,7 @@ public class MainActivity extends Activity implements HeadLocationListener, ARDi
                         calibrationDirection.setText(R.string.calibration_direction_4);
                     }
                 });
-                Thread.sleep(5000);
+                Thread.sleep(10000);
                 calibrationCounter = CALIBRATION_STEP_NORMAL - 1;
                 // 計算
                 calcNormalPosition();
@@ -202,11 +199,13 @@ public class MainActivity extends Activity implements HeadLocationListener, ARDi
         });
     }
 
+    @Override
     public void onStart() {
         super.onStart();
         mHUDHeadingManager.register(this);
     }
 
+    @Override
     public void onStop() {
         super.onStop();
         mHUDHeadingManager.unregister(this);
@@ -362,7 +361,7 @@ public class MainActivity extends Activity implements HeadLocationListener, ARDi
      */
     @Override
     public void onHeadLocation(float yaw, float pitch, float roll) {
-        //System.out.println("headLocation:" + yaw + " " + pitch + " " + roll);
+        //System.out.println(System.currentTimeMillis()+ " headLocation:" + yaw + " " + pitch + " " + roll);
         if (minYaw == 10000) {
             minYaw = maxYaw = yaw;
         }
