@@ -20,8 +20,10 @@ import android.view.SurfaceView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.content.IntentFilter;
 
 import com.parrot.arsdk.arcommands.ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM;
+import com.parrot.arsdk.arcommands.ARCommand;
 import com.parrot.arsdk.arcontroller.ARCONTROLLER_DEVICE_STATE_ENUM;
 import com.parrot.arsdk.arcontroller.ARCONTROLLER_DICTIONARY_KEY_ENUM;
 import com.parrot.arsdk.arcontroller.ARCONTROLLER_ERROR_ENUM;
@@ -39,6 +41,8 @@ import com.parrot.arsdk.ardiscovery.ARDiscoveryDeviceService;
 import com.parrot.arsdk.ardiscovery.ARDiscoveryException;
 import com.parrot.arsdk.armedia.ARMediaNotificationReceiver;
 import com.parrot.arsdk.armedia.ARMediaNotificationReceiverListener;
+import com.parrot.arsdk.armedia.ARMediaManager;
+import com.parrot.bebopdronepilotingnewapi.view.MeterView;
 import com.reconinstruments.os.HUDOS;
 import com.reconinstruments.os.hardware.sensors.HUDHeadingManager;
 import com.reconinstruments.os.hardware.sensors.HeadLocationListener;
@@ -64,6 +68,19 @@ public class PilotingActivity extends Activity
     public static String EXTRA_DEVICE_SERVICE = "pilotingActivity.extra.device.service";
     private static final int LOCATION_BUFFER_SIZE = 10; // 200ms
 
+    /**
+     * PID制御パラメータ(比例制御定数)
+     */
+    public static final double Kp = 0.6;
+    /**
+     * PID制御パラメータ(積分制御定数)
+     */
+    public static final double Ki = 0.6;
+    /**
+     * PID制御パラメータ(微分制御定数)
+     */
+    public static final double Kd = 0.3;
+
     public ARDeviceController deviceController;
     public ARDiscoveryDeviceService service;
     public ARDiscoveryDevice device;
@@ -82,6 +99,7 @@ public class PilotingActivity extends Activity
     private static final int VIDEO_WIDTH = 640;
     private static final int VIDEO_HEIGHT = 368;
     private SurfaceView sfView;
+    MeterView meterView;
     private MediaCodec mediaCodec;
     private Lock readyLock;
     private boolean isCodecConfigured = false;
@@ -151,7 +169,6 @@ public class PilotingActivity extends Activity
         mHUDHeadingManager = (HUDHeadingManager) HUDOS.getHUDService(HUDOS.HUD_HEADING_SERVICE);
 
         initIHM ();
-        /*
         initVideoVars();
 
         Intent intent = getIntent();
@@ -161,7 +178,6 @@ public class PilotingActivity extends Activity
         try
         {
             device = new ARDiscoveryDevice();
-
             ARDiscoveryDeviceNetService netDeviceService = (ARDiscoveryDeviceNetService) service.getDevice();
             Log.d(TAG, "name:"+netDeviceService.getName()+" ip:"+netDeviceService.getIp()+" port:"+netDeviceService.getPort());
             device.initWifi(ARDISCOVERY_PRODUCT_ENUM.ARDISCOVERY_PRODUCT_ARDRONE, netDeviceService.getName(), netDeviceService.getIp(), netDeviceService.getPort());
@@ -179,15 +195,23 @@ public class PilotingActivity extends Activity
             {
                 //create the deviceController
                 deviceController = new ARDeviceController (device);
-                deviceController.addListener (this);
+                deviceController.addListener(this);
+                /*
+                ARCommand.setARDrone3GPSSettingsStateGPSUpdateStateChangedListener(allListener);
+                ARCommand.setARDrone3PilotingStateSpeedChangedListener(allListener);
+                ARCommand.setARDrone3PilotingStatePositionChangedListener(allListener);
+                ARCommand.setARDrone3PilotingStateAltitudeChangedListener(allListener);
+                ARCommand.setARDrone3PilotingStateAttitudeChangedListener(allListener);
+                */
                 deviceController.addStreamListener(this);
+
+
             }
             catch (ARControllerException e)
             {
                 e.printStackTrace();
             }
         }
-        */
     }
 
     private void initIHM ()
@@ -207,11 +231,10 @@ public class PilotingActivity extends Activity
         super.onStart();
 
         mIsStarted = true;
-        //startDeviceController();
+        startDeviceController();
         mHUDHeadingManager.register(this);
         // コントローラータイマー開始
         startCommandDetect();
-        /*
         // ブロードキャスト
         if (receiver == null) {
             receiver = new ARMediaNotificationReceiver(this);
@@ -222,8 +245,7 @@ public class PilotingActivity extends Activity
         filter.addAction(ARMediaManager.ARMediaManagerNotificationDictionaryUpdatedKey);
         filter.addAction(ARMediaManager.ARMediaManagerNotificationDictionaryUpdatingKey);
         registerReceiver(receiver, filter);
-        enableGPS();
-        */
+        //enableGPS();
     }
 
     private void enableGPS() {
@@ -350,12 +372,14 @@ public class PilotingActivity extends Activity
             case KeyEvent.KEYCODE_DPAD_CENTER:
                 System.out.println("SELECT pressed:" + keyCode);
                 if (deviceController == null) break;
+                /*
                 if (!isLanding) {
                     error = deviceController.getFeatureARDrone3().sendPilotingLanding();
                 } else {
                     error = deviceController.getFeatureARDrone3().sendPilotingTakeOff();
                 }
                 isLanding = !isLanding;
+                */
                 break;
             default:
                 System.out.println("Button pressed:" + keyCode);
@@ -397,7 +421,7 @@ public class PilotingActivity extends Activity
                     try {
                         command = commandDetector.popCommand();
                         if (command != null/* && deviceController != null*/) {
-                            Log.d("COMMAND", "yaw:"+command[0]+" pitch:"+command[1]+" roll:"+command[2]);
+                            //Log.d("COMMAND", "yaw:"+command[0]+" pitch:"+command[1]+" roll:"+command[2]);
                             if (isUpDownMode) {
                                 deviceController.getFeatureARDrone3().setPilotingPCMD(
                                         (byte) 1,
@@ -465,12 +489,13 @@ public class PilotingActivity extends Activity
 
     /**
      * 頭の動き検知
-     * @param yaw
-     * @param pitch
-     * @param roll
+     * @param yaw 北0度 時計回りに360度まで
+     * @param pitch 上向き-90度, 下向き+90度
+     * @param roll 右向き-90度, 左向き+90度
      */
     @Override
     public void onHeadLocation(float yaw, float pitch, float roll) {
+        Log.d("HEAD", yaw + " " + pitch + " " + roll);
         if (!nor) {
             MainActivity.norYaw = yaw;
             MainActivity.norPitch = pitch;
@@ -549,7 +574,7 @@ public class PilotingActivity extends Activity
         });
     }
 
-    public void onUpdateSpeed(final float dx, final float dy, final float dz) {
+    public void onUpdateSpeed(final double dx, final double dy, final double dz) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -558,13 +583,17 @@ public class PilotingActivity extends Activity
         });
     }
 
-    public void onUpdateLatLang(final float lat, final float lang, final float alti) {
+    public void onUpdateLatLang(final double lat, final double lang, final double alti) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
                 latlangLabel.setText("GPS: " + lat + " - " + lang + " - " + alti);
             }
         });
+    }
+
+    public void onUpdateYawPitchRoll(double yaw, double pitch, double roll) {
+
     }
 
     @Override
@@ -623,29 +652,33 @@ public class PilotingActivity extends Activity
                 }
                 // ポジション
                 else if (commandKey == ARCONTROLLER_DICTIONARY_KEY_ENUM.ARCONTROLLER_DICTIONARY_KEY_ARDRONE3_PILOTINGSTATE_POSITIONCHANGED) {
-                    Float latValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_latitude");
-                    Float langValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_longitude");
-                    Float altiValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_altitude");
+                    Double latValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_latitude");
+                    Double langValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_longitude");
+                    Double altiValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_altitude");
                     onUpdateLatLang(latValue, langValue, altiValue);
                 }
                 // 速度変化
                 else if (commandKey == ARCONTROLLER_DICTIONARY_KEY_ENUM.ARCONTROLLER_DICTIONARY_KEY_ARDRONE3_PILOTINGSTATE_SPEEDCHANGED) {
-                    Float speedXValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedx");
-                    Float speedYValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedy");
-                    Float speedZValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedz");
+                    Double speedXValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedx");
+                    Double speedYValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedy");
+                    Double speedZValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedz");
                     onUpdateSpeed(speedXValue, speedYValue, speedZValue);
                 }
-                // 飛行状態
+                /**
+                 * roll: -3(進行方向左回り) ~ +3(進行方向右回り)
+                 * pitch: -1.5(下向き垂直時) ~ +1.5(上向き垂直時)
+                 * yaw: -3(南) -1.5(西)~ 0(北) ~ +1.5(東) +3(南)
+                 */
                 else if (commandKey == ARCONTROLLER_DICTIONARY_KEY_ENUM.ARCONTROLLER_DICTIONARY_KEY_ARDRONE3_PILOTINGSTATE_ATTITUDECHANGED) {
-                    Float yawValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_attitudechanged_yaw");
-                    Float pitchValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_attitudechanged_pitch");
-                    Float rollValue = (Float) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_attitudechanged_roll");
-                    Log.d("機体情報", "yaw:" + yawValue + " pitch:" + pitchValue + " roll:" + rollValue);
+                    Double yawValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_attitudechanged_yaw");
+                    Double pitchValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_attitudechanged_pitch");
+                    Double rollValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_attitudechanged_roll");
+                    //Log.d("機体情報", "yaw:" + yawValue + " pitch:" + pitchValue + " roll:" + rollValue);
+                    onUpdateYawPitchRoll(yawValue, pitchValue, rollValue);
                 }
             }
         }
-        else
-        {
+        else {
             Log.e(TAG, "elementDictionary is null");
         }
     }
@@ -749,11 +782,14 @@ public class PilotingActivity extends Activity
     {
         String deviceModel = Build.DEVICE;
         Log.d(TAG, "configuring HW video codec for device: [" + deviceModel + "]");
+        RelativeLayout.LayoutParams fullP = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT);
         sfView = new SurfaceView(getApplicationContext());
-        sfView.setLayoutParams(new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT));
+        meterView = new MeterView(this);
+        sfView.setLayoutParams(fullP);
+        meterView.setLayoutParams(fullP);
         sfView.getHolder().addCallback(this);
-
         view.addView(sfView, 0);
+        view.addView(sfView, 1);
     }
 
     @SuppressLint("NewApi")

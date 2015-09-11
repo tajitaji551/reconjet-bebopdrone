@@ -48,30 +48,6 @@
         android:layout_toRightOf="@+id/batteryLabel"
         android:layout_marginLeft="5dp" />
 
-    <ImageView
-        android:layout_width="200dp"
-        android:layout_height="10dp"
-        android:id="@+id/roll"
-        android:layout_centerVertical="true"
-        android:layout_centerHorizontal="true"
-        android:background="#0000ff" />
-
-    <ImageView
-        android:layout_width="35dp"
-        android:layout_height="8dp"
-        android:id="@+id/pitch"
-        android:layout_centerVertical="true"
-        android:layout_alignParentLeft="true"
-        android:background="#fff" />
-
-    <ImageView
-        android:layout_width="8dp"
-        android:layout_height="35dp"
-        android:id="@+id/yaw"
-        android:layout_alignParentBottom="true"
-        android:layout_centerHorizontal="true"
-        android:background="#fff" />
-
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

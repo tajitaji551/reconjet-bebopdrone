@@ -385,8 +385,10 @@ public class MainActivity extends Activity implements HeadLocationListener, ARDi
             }
         } else {
             if (!isCalibrated) {
+                // [TODO] for debug
+                isCalibrated = true;
                 // Calibration
-                doCalibration();
+                //doCalibration();
             }
         }
     }

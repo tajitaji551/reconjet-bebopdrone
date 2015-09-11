@@ -2,6 +2,7 @@ package com.parrot.bebopdronepilotingnewapi;
 
 import android.util.Log;
 
+import java.io.PipedOutputStream;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
@@ -27,6 +28,7 @@ public class CommandDetector implements Runnable {
      */
     public boolean stop = false, term = false;
     public float rate = 1000 / 5;
+    public double dt = 5 / 1000;
     public long nextTick;
 
     /**
@@ -40,6 +42,35 @@ public class CommandDetector implements Runnable {
     public Queue<float[]> commandQueue = new LinkedList<float[]>();
 
     static final float[] xAxis = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+
+    /**
+     * 水平軸回転計算用
+     */
+    float lastYawSlope;
+
+    /**
+     * 目的値
+     */
+    public double targetYaw, targetPitch, targetRoll;
+    /**
+     * Yaw用PID変数
+     */
+    double e0Y = 0, e1Y = 0, e2Y = 0; // 偏差（今回、前回、前々回）
+    double MVn0Y = 0, MVn1Y = 0; // 操作量（今回、前回）
+    double dMVnY = 0; // 今回の増分
+    /**
+     * Pitch用PID変数
+     */
+    double e0P = 0, e1P = 0, e2P = 0; // 偏差（今回、前回、前々回）
+    double MVn0P = 0, MVn1P = 0; // 操作量（今回、前回）
+    double dMVnP = 0; // 今回の増分
+    /**
+     * Roll用PID変数
+     */
+    double e0R = 0, e1R = 0, e2R = 0; // 偏差（今回、前回、前々回）
+    double MVn0R = 0, MVn1R = 0; // 操作量（今回、前回）
+    double dMVnR = 0; // 今回の増分
+
 
     public CommandDetector(List<Float> yaw, List<Float> pitch, List<Float> roll) {
         setMode(MODE_NORMAL);
@@ -93,11 +124,76 @@ public class CommandDetector implements Runnable {
         return (float) A;
     }
 
+    public double getPIDYawControl(double input) {
+        double pOut = 0, iOut = 0, dOut = 0;
+        // 偏差計算
+        e2Y = e1Y;
+        e1Y = e0Y;
+        e0Y = input - targetYaw;
+        // P制御
+        pOut = PilotingActivity.Kp * (e0Y - e1Y);
+        // I制御
+        iOut = PilotingActivity.Kp * (this.dt / PilotingActivity.Ki) * e0Y;
+        // D制御
+        dOut = PilotingActivity.Kp * (PilotingActivity.Kd / this.dt) * (e0Y - 2 * e1Y + e2Y);
+        dMVnY = pOut + iOut + dOut;
+        MVn0Y = MVn1Y + dMVnY;
+        MVn1Y = MVn0Y;
+        // [TODO] 制御量によって方向決定
+        // [TODO] 上限値（-100 - +100）設定
+        return MVn0Y;
+    }
+
+    public double getPIDPitchControl(double input) {
+        double pOut = 0, iOut = 0, dOut = 0;
+        // 偏差計算
+        e2P = e1P;
+        e1P = e0P;
+        e0P = input - targetPitch;
+        // P制御
+        pOut = PilotingActivity.Kp * (e0P - e1P);
+        // I制御
+        iOut = PilotingActivity.Kp * (this.dt / PilotingActivity.Ki) * e0P;
+        // D制御
+        dOut = PilotingActivity.Kp * (PilotingActivity.Kd / this.dt) * (e0P - 2 * e1P + e2P);
+        dMVnP = pOut + iOut + dOut;
+        MVn0P = MVn1P + dMVnP;
+        MVn1P = MVn0P;
+        // [TODO] 制御量によって方向決定
+        // [TODO] 上限値（-100 - +100）設定
+        return MVn0P;
+
+    }
+
+    public double getPIDRollControll(double input) {
+        double pOut = 0, iOut = 0, dOut = 0;
+        // 偏差計算
+        e2R = e1R;
+        e1R = e0R;
+        e0R = input - targetRoll;
+        // P制御
+        pOut = PilotingActivity.Kp * (e0R - e1R);
+        // I制御
+        iOut = PilotingActivity.Kp * (this.dt / PilotingActivity.Ki) * e0R;
+        // D制御
+        dOut = PilotingActivity.Kp * (PilotingActivity.Kd / this.dt) * (e0R - 2 * e1R + e2R);
+        dMVnR = pOut + iOut + dOut;
+        MVn0R = MVn1R + dMVnR;
+        MVn1R = MVn0R;
+        // [TODO] 制御量によって方向決定
+        // [TODO] 上限値（-100 - +100）設定
+        return MVn0R;
+    }
+
     /**
      * コマンド判定ループ
      */
     public void run() {
         long now, diff;
+        double e0, e1, e2; // 偏差（今回、前回、前々回）
+        double MVn0, MVn1; // 操作量（今回、前回）
+        double dMVn; // 今回の増分
+        double Kp, Ki, Kd; // PIDパラメータ
 
         nextTick = System.currentTimeMillis();
 
@@ -123,10 +219,12 @@ public class CommandDetector implements Runnable {
                     continue;
                 }
                 // 処理
+                /*
                 float[] command = detectCommand();
                 if (command != null) {
                     commandQueue.add(command);
                 }
+                */
             }
             nextTick += (long) rate;
         }
@@ -139,11 +237,14 @@ public class CommandDetector implements Runnable {
         if (!yawList.isEmpty()) {
             synchronized (yawList) {
                 float currentYaw = yawList.get(yawList.size() - 1);
+                float currentYawSlope = getSlope(yawList);
                 if (Math.abs(currentYaw - MainActivity.norYaw) / 360 >= rawThreshold
-                        && Math.toDegrees(getSlope(yawList)) <= slopeThreshold) {
-                    command[0] = currentYaw;
+                        && Math.toDegrees(currentYawSlope) <= slopeThreshold) {
+                    Log.d("YAW", "current:" +currentYaw+ " nor:" + MainActivity.norYaw + " slope:" + currentYawSlope + " sin:"+Math.sin(currentYaw));
+                    command[0] = MainActivity.norYaw - currentYaw;
                     detected = true;
                     MainActivity.norYaw = currentYaw;
+                    lastYawSlope = currentYawSlope;
                 }
             }
         }
@@ -152,7 +253,7 @@ public class CommandDetector implements Runnable {
                 float currentPitch = pitchList.get(pitchList.size() - 1);
                 if (Math.abs(currentPitch - MainActivity.norPitch) / 360 >= rawThreshold
                         && Math.toDegrees(getSlope(pitchList)) <= slopeThreshold) {
-                    command[1] = currentPitch;
+                    command[1] = - currentPitch;
                     detected = true;
                 }
             }
