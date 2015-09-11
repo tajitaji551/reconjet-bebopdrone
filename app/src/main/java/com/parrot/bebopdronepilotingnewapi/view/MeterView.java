@@ -67,30 +67,71 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
         Canvas canvas = this.holder.lockCanvas();
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
         Paint p = new Paint();
-        p.setColor(Color.BLUE);
-        // TODO Roll描画、計算がまだ適当だからちゃんとする
+        p.setColor(Color.RED);
+        p.setAlpha(255);
+        // Drone roll
+        canvas.rotate(-droneRollToDegree(droneRoll), wharf, hharf);
+        canvas.drawRect(wharf - 30, hharf - 5, wharf + 30, hharf + 5, p);
+        // JET roll
+        p.setColor(Color.GREEN);
         canvas.rotate((float) -jetRoll, wharf, hharf);
         canvas.drawRect(wharf - 30, hharf - 5, wharf + 30, hharf + 5, p);
         canvas.restore();
-        p.setColor(Color.RED);
+        p.setAlpha(100);
         // 下部にYawメーター描画
+        float h, detect;
         for (int i = 0; i < 36; i++) {
             float nowPos = i * hstep;
-            float h = (i + 1) % 5 == 0 ? height - 15 : height - 10;
+            detect = (i + 1) %5;
+            h = detect == 0 ? height - 15 : height - 10;
             canvas.drawRect(nowPos - 1, h, nowPos + 1, height, p);
+            if (detect == 0) {
+                canvas.drawText((i * 10 + 10) + "°", nowPos - 6, height - 17, p);
+            }
         }
         // 左端にピッチメータ描画
         for (int i = 0; i < 18; i++) {
             float nowPos = i * vstep;
-            float w = (i + 1) % 5 == 0 ? 15 : 10;
-            canvas.drawRect(0, nowPos - 1, w, nowPos + 1, p);
+            detect = (i + 1) % 5;
+            h = detect == 0 ? 15 : 10;
+            canvas.drawRect(0, nowPos - 1, h, nowPos + 1, p);
+            if (detect == 0) {
+                canvas.drawText((-90 + i * 10) + "°", 17, nowPos + 6, p);
+            }
         }
-        // TODO JET描画、計算がまだ適当だからちゃんとする
-        p.setColor(Color.BLUE);
+        // 右側に高度描画
+        for (int i = 0; i < 20; i++) {
+            float nowPos = i * vstep;
+            detect = (i + 1) % 5;
+            h = detect == 0 ? 15 : 10;
+            canvas.drawRect(width - h, nowPos - 1, width, nowPos + 1, p);
+            if (detect == 0) {
+                canvas.drawText((190 - i * 10) + "m", width - 50, nowPos + 5, p);
+            }
+        }
+        p.setAlpha(255);
+        p.setColor(Color.RED);
+        // Drone pitch, yaw
+        canvas.drawCircle(droneYawToDegree(droneYaw) / 360 * width, height - 8, 5, p);
+        canvas.drawCircle(8, dronePitchToDegree(dronePitch) / 90 * hharf + hharf, 5, p);
+        // JET pitch, yaw
+        p.setColor(Color.GREEN);
         canvas.drawCircle(jetYaw / 360 * width, height - 8, 5, p);
-        canvas.drawCircle(8, jetPitch / 90 * hharf, 5, p);
+        canvas.drawCircle(8, jetPitch / 90 * hharf + hharf, 5, p);
         // ロックしたCanvasを開放
         this.holder.unlockCanvasAndPost(canvas);
+    }
+
+    public float droneYawToDegree(float yaw) {
+        return (float) Math.sin(Math.random()*yaw);
+    }
+
+    public float dronePitchToDegree(float pitch) {
+        return (float) Math.tan(Math.random()*pitch);
+    }
+
+    public float droneRollToDegree(float roll) {
+        return (float) Math.cos(Math.random()*roll);
     }
 
     @Override

@@ -1,69 +1,81 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools" android:layout_width="match_parent"
-    android:layout_height="match_parent" android:paddingLeft="@dimen/activity_horizontal_margin"
-    android:paddingRight="@dimen/activity_horizontal_margin"
-    android:paddingTop="@dimen/activity_vertical_margin"
-    android:paddingBottom="@dimen/activity_vertical_margin" tools:context=".PilotingActivity"
+    android:layout_height="match_parent"
+    tools:context=".PilotingActivity"
     android:id="@+id/piloting_view">
 
     <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textAppearance="?android:attr/textAppearanceMedium"
-        android:text="XXX%"
+        android:layout_width="45dp"
+        android:layout_height="45dp"
+        android:text="69"
         android:id="@+id/batteryLabel"
         android:layout_alignParentTop="true"
 
         android:textColor="#ff0000"
-        android:textSize="20dp"
+        android:textSize="28dp"
         android:textStyle="bold"
         android:layout_centerHorizontal="true"
-        android:background="#fff" />
+        android:background="@drawable/bg_circle"
+        android:gravity="center"
+        android:shadowColor="#000000" />
 
     <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:textAppearance="?android:attr/textAppearanceLarge"
-        android:text="Large Text"
+        android:text="E"
         android:id="@+id/mode"
-        android:textColor="#ff00ff"
+        android:textColor="#0017ff"
         android:textStyle="bold"
-        android:textSize="25dp"
+        android:textSize="24dp"
         android:layout_alignParentTop="true"
         android:layout_toLeftOf="@+id/batteryLabel"
         android:layout_marginRight="5dp"
-        android:background="#fff" />
+        android:background="@drawable/bg_circle"
+        android:gravity="center"
+        android:layout_marginTop="1.5dp" />
 
     <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:textAppearance="?android:attr/textAppearanceLarge"
-        android:text="Large Text"
+        android:text="40"
         android:id="@+id/speed"
-        android:textColor="#ff00ff"
+        android:textColor="#0000ff"
         android:textStyle="bold"
-        android:textSize="25dp"
-        android:background="#fff"
+        android:textSize="23dp"
+        android:background="@drawable/bg_circle"
         android:layout_alignParentTop="true"
         android:layout_toRightOf="@+id/batteryLabel"
-        android:layout_marginLeft="5dp" />
+        android:layout_marginLeft="5dp"
+        android:gravity="center"
+        android:layout_marginTop="1.5dp" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="New Text"
+        android:text="GPS"
         android:id="@+id/latlang"
         android:layout_alignParentBottom="true"
-        android:layout_alignParentRight="true"
-        android:background="#ffffff"
-        android:textColor="#000" />
+        android:layout_alignParentRight="false"
+        android:background="@drawable/bg_rectangle"
+        android:textColor="#000"
+        android:layout_marginBottom="32dp"
+        android:layout_centerHorizontal="true"
+        android:textStyle="bold" />
 
     <TextView
-        android:layout_width="20dp"
-        android:layout_height="20dp"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:id="@+id/wifi"
-        android:layout_alignParentTop="true"
-        android:layout_alignParentRight="true"
-        android:background="#fff" />
+        android:background="@drawable/bg_circle_orange"
+        android:gravity="center"
+        android:text="W"
+        android:textColor="#fff"
+        android:textStyle="bold"
+        android:layout_toLeftOf="@+id/mode"
+        android:layout_marginRight="5dp"
+        android:layout_marginTop="1.5dp"
+        android:textSize="22dp" />
 
 </RelativeLayout>

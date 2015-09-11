@@ -170,7 +170,7 @@ public class PilotingActivity extends Activity
 
         initIHM ();
         initVideoVars();
-
+/*
         Intent intent = getIntent();
         service = intent.getParcelableExtra(EXTRA_DEVICE_SERVICE);
 
@@ -204,7 +204,7 @@ public class PilotingActivity extends Activity
             {
                 e.printStackTrace();
             }
-        }
+        }*/
     }
 
     private void initIHM ()
@@ -226,6 +226,13 @@ public class PilotingActivity extends Activity
         mIsStarted = true;
         startDeviceController();
         mHUDHeadingManager.register(this);
+        /*
+        RelativeLayout.LayoutParams fullP = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT);
+        meterView = new MeterView(this);
+        meterView.setLayoutParams(fullP);
+        view.addView(meterView, 0);
+        */
+        /*
         // コントローラータイマー開始
         startCommandDetect();
         // ブロードキャスト
@@ -239,6 +246,7 @@ public class PilotingActivity extends Activity
         filter.addAction(ARMediaManager.ARMediaManagerNotificationDictionaryUpdatingKey);
         registerReceiver(receiver, filter);
         //enableGPS();
+        */
     }
 
     private void enableGPS() {
@@ -475,8 +483,10 @@ public class PilotingActivity extends Activity
         {
             stopDeviceController();
         }
+        /*
         // ブロードキャスト解除
         unregisterReceiver(receiver);
+        */
         super.onStop();
     }
 
@@ -490,7 +500,7 @@ public class PilotingActivity extends Activity
     public void onHeadLocation(float yaw, float pitch, float roll) {
         Log.d("HEAD", yaw + " " + pitch + " " + roll);
         if (meterView != null) {
-            meterView.update(yaw, pitch, roll, 0, 0, 0);
+            meterView.update(yaw, pitch, roll, yaw*10, pitch*10, roll*10);
         }
         if (!nor) {
             MainActivity.norYaw = yaw;
@@ -565,7 +575,7 @@ public class PilotingActivity extends Activity
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                batteryLabel.setText(String.format("%d%%", percent));
+                batteryLabel.setText(String.format("%d", percent));
             }
         });
     }
