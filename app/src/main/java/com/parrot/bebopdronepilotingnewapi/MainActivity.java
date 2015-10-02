@@ -387,7 +387,7 @@ public class MainActivity extends Activity implements ARDiscoveryServicesDevices
                 // [TODO] for debug
                 isCalibrated = true;
                 // Calibration
-                //doCalibration();
+                doCalibration();
             }
         }
     }

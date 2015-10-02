@@ -43,39 +43,44 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
      * JETのキャリブレーション済み値セット
      * @param calibrated
      */
-    public void initJetCalibration(float [] calibrated) throws Exception {
-        if (calibrated.length < 6) throw new Exception("Invalid parameters!");
+    public void initJetCalibration(float [] calibrated) {
         minYaw = calibrated[0];
-        minYaw = calibrated[1];
+        maxYaw = calibrated[1];
         minPitch = calibrated[2];
         maxPitch = calibrated[3];
         minRoll = calibrated[4];
         maxRoll = calibrated[5];
     }
 
-    public void update(float jetYaw, float jetPitch, float jetRoll, float droneYaw, float dronePitch, float droneRoll) {
+    public void updateJet(float jetYaw, float jetPitch, float jetRoll) {
         this.jetYaw = jetYaw;
         this.jetPitch = jetPitch;
         this.jetRoll = jetRoll;
+        doDraw();
+    }
+
+    public void updateDrone(float droneYaw, float dronePitch, float droneRoll) {
         this.droneYaw = droneYaw;
         this.dronePitch = dronePitch;
         this.droneRoll = droneRoll;
+        doDraw();
     }
 
     private void doDraw() {
         // Canvasをロックする（他のスレッドから描画されないようにするため）
         Canvas canvas = this.holder.lockCanvas();
+        if (canvas == null) return;
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
         Paint p = new Paint();
         p.setColor(Color.RED);
         p.setAlpha(255);
         // Drone roll
         canvas.rotate(-droneRollToDegree(droneRoll), wharf, hharf);
-        canvas.drawRect(wharf - 30, hharf - 5, wharf + 30, hharf + 5, p);
+        canvas.drawRect(wharf - 30, hharf - 2, wharf + 30, hharf + 2, p);
         // JET roll
         p.setColor(Color.GREEN);
         canvas.rotate((float) -jetRoll, wharf, hharf);
-        canvas.drawRect(wharf - 30, hharf - 5, wharf + 30, hharf + 5, p);
+        canvas.drawRect(wharf - 30, hharf - 2, wharf + 30, hharf + 2, p);
         canvas.restore();
         p.setAlpha(100);
         // 下部にYawメーター描画
@@ -136,9 +141,9 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        looper = new Thread(this);
-        looper.start();
-        stop = false;
+        //looper = new Thread(this);
+        //looper.start();
+        //stop = false;
     }
 
     @Override
@@ -164,7 +169,7 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
             if (stop) continue;
             doDraw();
             try {
-                Thread.sleep(1000 / 30); // 30fpsくらい
+                Thread.sleep(1000 / 20); // 30fpsくらい
             } catch (InterruptedException e) {
 
             }
@@ -172,6 +177,7 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
     }
 
     public void term() {
+        stop = false;
         term = true;
     }
 }
