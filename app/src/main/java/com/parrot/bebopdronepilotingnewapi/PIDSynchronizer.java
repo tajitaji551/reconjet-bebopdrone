@@ -1,5 +1,8 @@
 package com.parrot.bebopdronepilotingnewapi;
 
+import android.os.Handler;
+import android.util.Log;
+
 import com.parrot.arsdk.arcontroller.ARDeviceController;
 
 /**
@@ -22,14 +25,15 @@ public class PIDSynchronizer implements Runnable {
      * ループ処理
      */
     public boolean stop = false, term = false;
-    public float rate = 1000 / 50;
-    public double dt = 0.2;
+    public float rate = 1000 * 0.05f;
+    public double dt = 0.1;
     public long nextTick;
 
     /**
      * デバイスコントローラー
      */
     ARDeviceController _controller;
+    Handler _handler;
 
     /**
      * グラスの目的値
@@ -63,7 +67,7 @@ public class PIDSynchronizer implements Runnable {
     /**
      * 加速
      */
-    double accelY = 2, accelP = 5, accelR = 5;
+    double accelY = 10, accelP = 10, accelR = 10;
 
     /**
      * 命令を送るべきかどうか
@@ -72,7 +76,7 @@ public class PIDSynchronizer implements Runnable {
     boolean shouldSendPitchCommand = false;
     boolean shouldSendRollCommand = false;
 
-    public PIDSynchronizer(ARDeviceController controller) {
+    public PIDSynchronizer(Handler handler, ARDeviceController controller) {
         setMode(MODE_NORMAL);
         _controller = controller;
     }
@@ -145,9 +149,9 @@ public class PIDSynchronizer implements Runnable {
                 shouldSendPitchCommand = Math.abs(targetPitch) >= 0.225;
                 shouldSendRollCommand = Math.abs(targetRoll) >= 0.0225;
             default:
-
                 break;
         }
+        Log.d("TARGET", shouldSendYawCommand+" "+shouldSendPitchCommand+" "+shouldSendRollCommand);
     }
 
     public double getPIDYawControl(double input) {
@@ -165,7 +169,9 @@ public class PIDSynchronizer implements Runnable {
         dMVnY = pOut + iOut + dOut;
         MVn0Y = MVn1Y + dMVnY;
         MVn1Y = MVn0Y;
-        double accelledY = MVn0Y * accelY;
+        //Log.d("YAW", "pOut:" + pOut+ " iOut:"+iOut+" dOut:"+dOut+" MVn1Y: "+dMVnY);
+        //double accelledY = MVn0Y * accelY;
+        double accelledY = dMVnY * accelY;
         if (accelledY >= 100) {
             accelledY = 100;
         }
@@ -188,10 +194,11 @@ public class PIDSynchronizer implements Runnable {
         // D制御
         dOut = PilotingActivity.Kp * (PilotingActivity.Kd / this.dt) * (e0P - 2 * e1P + e2P);
         dMVnP = pOut + iOut + dOut;
-        //Log.d("PITCH", shouldSendPitchCommand + " " + pOut + " " + iOut + " " + dOut);
+        //Log.d("PITCH", shouldSendPitchCommand + " " + pOut + " " + iOut + " " + dOut +" MVn0P: "+dMVnP);
         MVn0P = MVn1P + dMVnP;
         MVn1P = MVn0P;
-        double accelledP = MVn0P * accelP;
+        //double accelledP = MVn0P * accelP;
+        double accelledP = dMVnP * accelP;
         if (accelledP >= 100) {
             accelledP = 100;
         }
@@ -218,8 +225,9 @@ public class PIDSynchronizer implements Runnable {
         MVn0R = MVn1R + dMVnR;
         //Log.d("ROLL", "past " +MVn1R+" total:"+MVn0R);
         MVn1R = MVn0R;
-        double accelledR = MVn0R * accelR;
-        //Log.d("ROLL", shouldSendRollCommand + " " +pOut + " " + iOut + " " + dOut);
+        //double accelledR = MVn0R * accelR;
+        double accelledR = dMVnR * accelR;
+        //Log.d("ROLL", shouldSendRollCommand + " " +pOut + " " + iOut + " " + dOut + " MVn0R: "+dMVnR);
         //Log.d("ROLL", "past " +MVn1R+" total:"+MVn0R+" acceled:"+accelledR);
         if (accelledR >= 100) {
             accelledR = 100;
@@ -268,6 +276,7 @@ public class PIDSynchronizer implements Runnable {
                 double p = getPIDPitchControl(dronePitch);
                 double r = getPIDRollControll(droneRoll);
                 sendYPRCommand(y, p, r);
+                Log.d("RUN", "SEND CMD");
             }
             nextTick += (long) rate;
         }
@@ -281,35 +290,42 @@ public class PIDSynchronizer implements Runnable {
      * @param r roll操作量
      */
     private void sendYPRCommand(double y, double p, double r) {
-        int yCtrl = (int) -y;
-        int pCtrl = (int) -p;
-        int rCtrl = (int) -r;
+        final int yCtrl = (int) -y;
+        final int pCtrl = (int) p;
+        final int rCtrl = (int) -r;
         if (_controller != null) {
-            if (shouldSendYawCommand) {
-                _controller.getFeatureARDrone3().setPilotingPCMDYaw((byte) yCtrl);
-                //Log.d("CTRL", "Yaw " + yCtrl);
-            } else {
-                _controller.getFeatureARDrone3().setPilotingPCMDYaw((byte) 0);
-                //Log.d("CTRL", "NONE");
-            }
-            if (shouldSendRollCommand) {
-                _controller.getFeatureARDrone3().setPilotingPCMDRoll((byte) rCtrl);
-                _controller.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
-                //Log.d("CTRL", "Roll " + rCtrl);
-            } else {
-                _controller.getFeatureARDrone3().setPilotingPCMDRoll((byte) 0);
-                _controller.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
-                //Log.d("CTRL", "NONE");
-            }
-            if (shouldSendPitchCommand) {
-                _controller.getFeatureARDrone3().setPilotingPCMDPitch((byte) pCtrl);
-                _controller.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
-                //Log.d("CTRL", "Pitch " + pCtrl);
-            } else {
-                _controller.getFeatureARDrone3().setPilotingPCMDPitch((byte) 0);
-                _controller.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
-                //Log.d("CTRL", "NONE");
-            }
+            /*
+            _handler.post(new Runnable() {
+                @Override
+                public void run() {*/
+            Log.d("Flag", shouldSendYawCommand+" "+shouldSendPitchCommand+" "+shouldSendRollCommand);
+                    if (shouldSendYawCommand) {
+                        _controller.getFeatureARDrone3().setPilotingPCMDYaw((byte) yCtrl);
+                        Log.d("CTRL", "Yaw " + yCtrl);
+                    } else {
+                        _controller.getFeatureARDrone3().setPilotingPCMDYaw((byte) 0);
+                        Log.d("CTRL", "NONE");
+                    }
+                    if (shouldSendRollCommand) {
+                        _controller.getFeatureARDrone3().setPilotingPCMDRoll((byte) rCtrl);
+                        _controller.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
+                        Log.d("CTRL", "Roll " + rCtrl);
+                    } else {
+                        _controller.getFeatureARDrone3().setPilotingPCMDRoll((byte) 0);
+                        _controller.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
+                        Log.d("CTRL", "NONE");
+                    }
+                    if (shouldSendPitchCommand) {
+                        _controller.getFeatureARDrone3().setPilotingPCMDPitch((byte) pCtrl);
+                        _controller.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
+                        Log.d("CTRL", "Pitch " + pCtrl);
+                    } else {
+                        _controller.getFeatureARDrone3().setPilotingPCMDPitch((byte) 0);
+                        _controller.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
+                        Log.d("CTRL", "NONE");
+                    }
+/*                }
+            });*/
         }
     }
 

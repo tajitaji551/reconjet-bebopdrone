@@ -19,5 +19,5 @@ allprojects {
 dependencies {
     apply plugin: 'application'
     compile fileTree(include: ['*.jar'], dir: 'libs')
-    compile files('app/libs/jmdns.jar')
+    //compile files('app/libs/jmdns.jar')
 }

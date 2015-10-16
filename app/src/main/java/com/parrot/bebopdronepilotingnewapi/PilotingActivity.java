@@ -19,7 +19,6 @@ import android.view.KeyEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.RelativeLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import com.parrot.arsdk.arcommands.ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM;
@@ -70,19 +69,15 @@ public class PilotingActivity extends Activity
     /**
      * PID制御パラメータ(積分制御定数)
      */
-    public static final double Ki = 0.4;
+    public static final double Ki = 0.02;
     /**
      * PID制御パラメータ(微分制御定数)
      */
-    public static final double Kd = 0.3;
+    public static final double Kd = 0.6;
 
     public ARDeviceController deviceController;
     public ARDiscoveryDeviceService service;
     public ARDiscoveryDevice device;
-
-    TextView batteryLabel;
-    TextView modeLabel;
-    TextView speedLabel, wifiLabel, latlangLabel;
 
     private AlertDialog alertDialog;
 
@@ -106,14 +101,9 @@ public class PilotingActivity extends Activity
     private ARMediaNotificationReceiver receiver;
 
     HUDHeadingManager mHUDHeadingManager = null;
-    float nowYaw = 0, lastYaw = 0;
-    float nowPitch = 0, lastPitch = 0;
-    float nowRoll = 0, lastRoll = 0;
-    float rawThreshold = 20;
-    boolean senderTermFlag = false;
     // 飛行ステータス
     private int emergencyCounter = 2; // 0で緊急着陸
-    private boolean isLanding = true; // true:着陸状態、false:飛行状態
+    public static boolean isLanding = true; // true:着陸状態、false:飛行状態
     private boolean isUpDownMode = false; // true:上下モード、false:先進交代モード
 
     // GPS関係
@@ -126,24 +116,15 @@ public class PilotingActivity extends Activity
     private Location current;
 
     // コマンド判定関係
-    float frameRate = 1000 / 5; // 200ms
-    long nextTick;
     Thread PIDSynchronizerThread;
     PIDSynchronizer pidSynchronizer;
-    float yawSlope, pitchSlope, rollSlope;
-    float lastYawSlope, lastPitchSlope, lastRollSlope;
-    float moveDetectionThreshold = 5.0f; // 動き検知のしきい値
-    boolean detectedYaw = false, detectedPitch = false, detectedRoll = false;
+    int upDownState = 0;
 
     // ハンドラー
     Handler handler = new Handler();
 
-
-    boolean nor = false;
     // Drone
     ARCOMMANDS_ARDRONE3_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM _droneState;
-
-    boolean isOn = false;
 
     private void failSafe() {
         if (deviceController != null) {
@@ -158,7 +139,7 @@ public class PilotingActivity extends Activity
         setContentView(R.layout.activity_piloting);
         mHUDHeadingManager = (HUDHeadingManager) HUDOS.getHUDService(HUDOS.HUD_HEADING_SERVICE);
 
-        initIHM ();
+        initIHM();
         initVideoVars();
 
         Intent intent = getIntent();
@@ -198,36 +179,14 @@ public class PilotingActivity extends Activity
     private void initIHM ()
     {
         view = (RelativeLayout) findViewById(R.id.piloting_view);
-        batteryLabel = (TextView) findViewById(R.id.batteryLabel);
-        modeLabel = (TextView) findViewById(R.id.mode);
-        speedLabel = (TextView) findViewById(R.id.speed);
-        wifiLabel = (TextView) findViewById(R.id.wifi);
-        latlangLabel = (TextView) findViewById(R.id.latlang);
-        pidSynchronizer = new PIDSynchronizer(deviceController);
-        pidSynchronizer.setMode(PIDSynchronizer.MODE_NORMAL);
     }
 
     @Override
     public void onStart()
     {
         super.onStart();
-
-        RelativeLayout.LayoutParams fullP = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT);
-        meterView = new MeterView(this);
-        meterView.setLayoutParams(fullP);
-        float[] calibrated = new float[]{
-                MainActivity.minYaw,
-                MainActivity.maxYaw,
-                MainActivity.minPitch,
-                MainActivity.maxPitch,
-                MainActivity.minRoll,
-                MainActivity.maxRoll
-        };
-        meterView.initJetCalibration(calibrated);
-        view.addView(meterView, 0);
-
-        startDeviceController();
         mHUDHeadingManager.register(this);
+        startDeviceController();
 
         // ブロードキャスト
         if (receiver == null) {
@@ -241,8 +200,24 @@ public class PilotingActivity extends Activity
         registerReceiver(receiver, filter);
         //enableGPS();
         // 制御開始
-        PIDSynchronizerThread = new Thread(pidSynchronizer);
-        PIDSynchronizerThread.start();
+        Log.d("PILOT", "onStart");
+        if (PIDSynchronizerThread == null && deviceController != null) {
+            pidSynchronizer = new PIDSynchronizer(handler, deviceController);
+            pidSynchronizer.setMode(PIDSynchronizer.MODE_NORMAL);
+            PIDSynchronizerThread = new Thread(pidSynchronizer);
+            PIDSynchronizerThread.start();
+        }
+    }
+
+    private void sendParameters(boolean isOutside) {
+        // 屋外用
+        if (isOutside) {
+
+        }
+        // 屋内用
+        else {
+
+        }
     }
 
     private void enableGPS() {
@@ -328,7 +303,13 @@ public class PilotingActivity extends Activity
                                 ? 30 : PIDSynchronizer.mode == PIDSynchronizer.MODE_NORMAL
                                 ? 50 : PIDSynchronizer.mode == PIDSynchronizer.MODE_PRO
                                 ? 80 : 20;
-                        deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) gaz);
+                        if (!isUpDownMode) {
+                            if (upDownState < 0) {
+                                deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) 0);
+                            } else if (upDownState == 0) {
+                                deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) gaz);
+                            }
+                        }
                     }
                 }
                 break;
@@ -341,7 +322,11 @@ public class PilotingActivity extends Activity
                                 ? 50 : PIDSynchronizer.mode == PIDSynchronizer.MODE_PRO
                                 ? 80 : 20;
                         if (!isUpDownMode) {
-                            deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) -gaz);
+                            if (upDownState > 0) {
+                                deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) 0);
+                            } else if (upDownState == 0) {
+                                deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) -gaz);
+                            }
                         }
                     } else {
                         deviceController.getFeatureARDrone3().sendPilotingLanding();
@@ -360,7 +345,7 @@ public class PilotingActivity extends Activity
                 System.out.println("D-PAD RIGHT pressed:" + keyCode);
                 if (deviceController != null) {
                     isUpDownMode = !isUpDownMode;
-                    modeLabel.setText(isUpDownMode ? "上下" : "前後");
+                    if (meterView != null) meterView.changeUpsideDown(isUpDownMode);
                 }
                 break;
             // バックキーは緊急着陸
@@ -383,10 +368,11 @@ public class PilotingActivity extends Activity
 
                 if (!isLanding) {
                     error = deviceController.getFeatureARDrone3().sendPilotingLanding();
+                    isLanding = true;
                 } else {
                     error = deviceController.getFeatureARDrone3().sendPilotingTakeOff();
+                    isLanding = false;
                 }
-                isLanding = !isLanding;
 
                 break;
             default:
@@ -434,8 +420,8 @@ public class PilotingActivity extends Activity
     @Override
     protected void onStop()
     {
+        isLanding = true;
         pidSynchronizer.term();
-        senderTermFlag = true;
         mHUDHeadingManager.unregister(this);
         if (deviceController != null)
         {
@@ -455,74 +441,24 @@ public class PilotingActivity extends Activity
      * @param roll 右向き-90度, 左向き+90度
      */
     @Override
-    public void onHeadLocation(float yaw, float pitch, float roll) {
-        Log.d("HEAD", yaw + " " + pitch + " " + roll);
-        if (meterView != null) {
-            meterView.updateJet(yaw, pitch, roll);
-        }
-        if (!nor) {
-            MainActivity.norYaw = yaw;
-            MainActivity.norPitch = pitch;
-            MainActivity.norRoll = roll;
-            nor = true;
-        }
-        lastYaw = yaw;
-        lastPitch = pitch;
-        lastRoll = roll;
+    public void onHeadLocation(final float yaw, final float pitch, final float roll) {
+        //Log.d("HEAD", yaw + " " + pitch + " " + roll);
         pidSynchronizer.updateTargetYPRState((double) yaw, (double) pitch, (double) roll);
-    }
-
-    /**
-     * 【廃止】コマンド送信
-     */
-    private void sendCommand() {
-        //if (deviceController == null) return;
-        // yawコマンド
-        System.out.println("diffYaw:" + (nowYaw - MainActivity.norYaw));
-        if (detectedYaw && Math.abs(nowYaw - MainActivity.norYaw) > rawThreshold) {
-            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte) ((int) (yawSlope * 10f)));
-            System.out.println("sendCmd setPilotingPCMDYaw:" + ((int) (yawSlope * 10f)));
-        } else {
-            deviceController.getFeatureARDrone3().setPilotingPCMDYaw((byte) 0);
-            System.out.println("sendCmd setPilotingPCMDYaw:" + 0);
-        }
-        // pitchコマンド
-        if (isUpDownMode) { // 上下モード
-            if (detectedPitch && Math.abs(nowPitch - MainActivity.norPitch) > rawThreshold) {
-                deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) ((int) (pitchSlope * 10f)));
-                System.out.println("sendCmd setPilotingPCMDGaz:" + ((int) (pitchSlope * 10f)));
-            } else {
-                deviceController.getFeatureARDrone3().setPilotingPCMDGaz((byte) 0);
-                System.out.println("sendCmd setPilotingPCMDGaz:" + 0);
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (meterView != null) {
+                    meterView.updateJet(yaw, pitch, roll);
+                }
             }
-        } else { // 前後モード
-            if (detectedPitch && Math.abs(nowPitch - MainActivity.norPitch) > rawThreshold) {
-                deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) ((int) (pitchSlope * 10f)));
-                deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
-                System.out.println("sendCmd setPilotingPCMDPitch:" + ((int) (pitchSlope * 10f)));
-            } else {
-                deviceController.getFeatureARDrone3().setPilotingPCMDPitch((byte) 0);
-                deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
-                System.out.println("sendCmd setPilotingPCMDPitch:" + 0);
-            }
-        }
-        // rollコマンド
-        if (detectedRoll && Math.abs(nowRoll - MainActivity.norRoll) > rawThreshold) {
-            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte) ((int) (rollSlope * 10f)));
-            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 1);
-            System.out.println("sendCmd setPilotingPCMDRoll:" + ((int) (rollSlope * 10f)));
-        } else {
-            deviceController.getFeatureARDrone3().setPilotingPCMDRoll((byte) 0);
-            deviceController.getFeatureARDrone3().setPilotingPCMDFlag((byte) 0);
-            System.out.println("sendCmd setPilotingPCMDRoll:" + 0);
-        }
+        });
     }
 
     public void onUpdateBattery(final int percent) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                batteryLabel.setText(String.format("%d", percent));
+                if (meterView != null) meterView.updateBattery(percent);
             }
         });
     }
@@ -531,7 +467,7 @@ public class PilotingActivity extends Activity
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                speedLabel.setText(dx + " - " + dy + " - " + dz + "(m/s)");
+                if (meterView != null) meterView.updateSpeed(dx, dy, dz);
             }
         });
     }
@@ -540,25 +476,32 @@ public class PilotingActivity extends Activity
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                latlangLabel.setText("GPS: " + lat + " - " + lang + " - " + alti);
+                if (meterView != null) meterView.updateGPS(lat, lang, alti);
             }
         });
     }
 
-    public void onUpdateYawPitchRoll(double yaw, double pitch, double roll) {
-        if (meterView != null) {
-            if (yaw >= 0 && yaw <= 180) {
-                yaw = yaw * 60;
-            } else {
-                yaw += 3.0;
-                yaw *= 60;
-                yaw += 180;
+    public void onUpdateYawPitchRoll(final double yaw, final double pitch, final double roll) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                pidSynchronizer.updateCurrentYPRState(yaw, pitch, roll);
+                double y = yaw, p = pitch, r = roll;
+                if (meterView != null) {
+                    if (y >= 0 && y <= 180) {
+                        y = y * 60;
+                    } else {
+                        y += 3.0;
+                        y *= 60;
+                        y += 180;
+                    }
+                    p = -pitch * 90 / 1.5;
+                    r = roll * 30;
+                    //Log.d("upYPR", "updateYawPitchRoll " + y + " " + p + " " + r);
+                    meterView.updateDrone((float) y, (float) p, (float) r);
+                }
             }
-            pitch = -pitch * 90 / 1.5;
-            roll = -roll * 30;
-            meterView.updateDrone((float) yaw, (float) pitch, (float) roll);
-        }
-        pidSynchronizer.updateCurrentYPRState(yaw, pitch, roll);
+        });
     }
 
     @Override
@@ -610,7 +553,7 @@ public class PilotingActivity extends Activity
         {
             ARControllerArgumentDictionary<Object> args = elementDictionary.get(ARControllerDictionary.ARCONTROLLER_DICTIONARY_SINGLE_KEY);
             if (args != null) {
-                Log.d("Command", "key:" + commandKey);
+                //Log.d("Command", "key:" + commandKey);
                 // バッテリー残量
                 if (commandKey == ARCONTROLLER_DICTIONARY_KEY_ENUM.ARCONTROLLER_DICTIONARY_KEY_COMMON_COMMONSTATE_BATTERYSTATECHANGED) {
                     Integer batValue = (Integer) args.get("arcontroller_dictionary_key_common_commonstate_batterystatechanged_percent");
@@ -621,14 +564,14 @@ public class PilotingActivity extends Activity
                     Double latValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_latitude");
                     Double langValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_longitude");
                     Double altiValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_positionchanged_altitude");
-                    onUpdateLatLang(latValue, langValue, altiValue);
+//                    onUpdateLatLang(latValue, langValue, altiValue);
                 }
                 // 速度変化
                 else if (commandKey == ARCONTROLLER_DICTIONARY_KEY_ENUM.ARCONTROLLER_DICTIONARY_KEY_ARDRONE3_PILOTINGSTATE_SPEEDCHANGED) {
                     Double speedXValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedx");
                     Double speedYValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedy");
                     Double speedZValue = (Double) args.get("arcontroller_dictionary_key_ardrone3_pilotingstate_speedchanged_speedz");
-                    onUpdateSpeed(speedXValue, speedYValue, speedZValue);
+//                    onUpdateSpeed(speedXValue, speedYValue, speedZValue);
                 }
                 /**
                  * roll: -3(進行方向左回り) ~ +3(進行方向右回り)
@@ -750,11 +693,20 @@ public class PilotingActivity extends Activity
         Log.d(TAG, "configuring HW video codec for device: [" + deviceModel + "]");
         RelativeLayout.LayoutParams fullP = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT);
         sfView = new SurfaceView(getApplicationContext());
-        meterView = new MeterView(this);
         sfView.setLayoutParams(fullP);
-        meterView.setLayoutParams(fullP);
         sfView.getHolder().addCallback(this);
         view.addView(sfView, 0);
+        meterView = new MeterView(this);
+        meterView.setLayoutParams(fullP);
+        float[] calibrated = new float[]{
+                MainActivity.minYaw,
+                MainActivity.maxYaw,
+                MainActivity.minPitch,
+                MainActivity.maxPitch,
+                MainActivity.minRoll,
+                MainActivity.maxRoll
+        };
+        meterView.initJetCalibration(calibrated);
         view.addView(meterView, 1);
     }
 

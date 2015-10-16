@@ -103,8 +103,11 @@
     <orderEntry type="library" exported="" name="libARDataTransfer" level="project" />
     <orderEntry type="library" exported="" name="libARUpdater" level="project" />
     <orderEntry type="library" exported="" name="libcurl" level="project" />
+    <orderEntry type="library" exported="" name="junit-dep-4.10" level="project" />
     <orderEntry type="library" exported="" name="libARMavlink" level="project" />
+    <orderEntry type="library" exported="" name="hamcrest-core-1.1" level="project" />
     <orderEntry type="library" exported="" name="libARDiscovery" level="project" />
+    <orderEntry type="library" exported="" name="testing-support-lib-0.1" level="project" />
     <orderEntry type="library" exported="" name="libARUtils" level="project" />
   </component>
 </module>

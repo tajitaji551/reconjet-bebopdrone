@@ -27,6 +27,12 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
     float hstep;
     float vstep;
 
+    boolean upDownMode;
+    int battery;
+    double speedX, speedY, speedZ;
+    double lat, lang, alti;
+    double wifi;
+
     public MeterView(Context context) {
         super(context);
         holder = getHolder();
@@ -35,7 +41,7 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
         getHolder().setFormat(PixelFormat.TRANSLUCENT);
         // フォーカス不可
         setFocusable(false);
-        // 最前面に持ってくる
+        // 重ね表示した時最前面に表示
         setZOrderOnTop(true);
     }
 
@@ -52,18 +58,36 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
         maxRoll = calibrated[5];
     }
 
+    public void changeUpsideDown(boolean isUpDownMode) {
+        upDownMode = isUpDownMode;
+    }
+
+    public void updateBattery(int battery) {
+        this.battery = battery;
+    }
+
+    public void updateSpeed(double dx, double dy, double dz) {
+        speedX = dx;
+        speedY = dy;
+        speedZ = dz;
+    }
+
+    public void updateGPS(double lat, double lang, double alti) {
+        this.lat = lat;
+        this.lang = lang;
+        this.alti = alti;
+    }
+
     public void updateJet(float jetYaw, float jetPitch, float jetRoll) {
         this.jetYaw = jetYaw;
         this.jetPitch = jetPitch;
         this.jetRoll = jetRoll;
-        doDraw();
     }
 
     public void updateDrone(float droneYaw, float dronePitch, float droneRoll) {
         this.droneYaw = droneYaw;
         this.dronePitch = dronePitch;
         this.droneRoll = droneRoll;
-        doDraw();
     }
 
     private void doDraw() {
@@ -75,8 +99,10 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
         p.setColor(Color.RED);
         p.setAlpha(255);
         // Drone roll
-        canvas.rotate(-droneRollToDegree(droneRoll), wharf, hharf);
+        canvas.save();
+        canvas.rotate(droneRoll, wharf, hharf);
         canvas.drawRect(wharf - 30, hharf - 2, wharf + 30, hharf + 2, p);
+        canvas.restore();
         // JET roll
         p.setColor(Color.GREEN);
         canvas.rotate((float) -jetRoll, wharf, hharf);
@@ -117,12 +143,22 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
         p.setAlpha(255);
         p.setColor(Color.RED);
         // Drone pitch, yaw
-        canvas.drawCircle(droneYawToDegree(droneYaw) / 360 * width, height - 8, 5, p);
-        canvas.drawCircle(8, dronePitchToDegree(dronePitch) / 90 * hharf + hharf, 5, p);
+        canvas.drawCircle(droneYaw / 360 * width, height - 8, 5, p);
+        canvas.drawCircle(8, dronePitch / 90 * hharf + hharf, 5, p);
         // JET pitch, yaw
         p.setColor(Color.GREEN);
         canvas.drawCircle(jetYaw / 360 * width, height - 8, 5, p);
         canvas.drawCircle(8, jetPitch / 90 * hharf + hharf, 5, p);
+
+        // バッテリ残業
+        if (battery <= 20) {
+            p.setColor(Color.RED);
+        } else if (battery > 20 && battery < 80) {
+            p.setColor(Color.YELLOW);
+        } else {
+            p.setColor(Color.GREEN);
+        }
+        canvas.drawCircle(wharf, 10, (float)battery * 0.1f, p);
         // ロックしたCanvasを開放
         this.holder.unlockCanvasAndPost(canvas);
     }
@@ -141,9 +177,9 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        //looper = new Thread(this);
-        //looper.start();
-        //stop = false;
+        looper = new Thread(this);
+        looper.start();
+        stop = false;
     }
 
     @Override
@@ -169,7 +205,7 @@ public class MeterView extends SurfaceView implements SurfaceHolder.Callback, Ru
             if (stop) continue;
             doDraw();
             try {
-                Thread.sleep(1000 / 20); // 30fpsくらい
+                Thread.sleep(1000 / 10); // 20fpsくらい
             } catch (InterruptedException e) {
 
             }
